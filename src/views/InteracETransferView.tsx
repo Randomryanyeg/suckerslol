@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, useMotionValue, useTransform, AnimatePresence } from 'motion/react';
-import { CheckCircle2, XCircle, RefreshCcw, MessageSquare, Loader2 } from 'lucide-react';
+import { CheckCircle2, XCircle, RefreshCcw, MessageSquare, Loader2, PhoneCall } from 'lucide-react';
 import { BackIcon, HelpCircleIcon, ChevronDownIcon, ScotiaLogoSVG } from '../components/ScotiaIcons';
 import { ScotiaAccountMap, Contact } from '../shared/types';
 import { OTPVerification } from '../components/OTPVerification';
@@ -664,26 +664,44 @@ const InteracETransferView: React.FC<InteracETransferViewProps> = ({ accounts, o
               </div>
               <h2 className="text-3xl font-bold text-gray-900 mb-4">Transfer Failed</h2>
               <p className="text-gray-500 mb-12 max-w-xs">
-                We encountered an error while processing your transfer. Your funds have not been moved.
+                Your transfer could not be completed at this time. Please contact Scotia support for assistance.
               </p>
               
               <div className="w-full space-y-4 px-4">
-                <button 
-                  onClick={() => setIsFailed(false)}
-                  className="w-full py-4 bg-[#ED0711] text-white font-bold rounded-2xl shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-all"
-                >
-                  <RefreshCcw size={20} />
-                  Try Again
-                </button>
                 <button 
                   onClick={() => {
                     window.dispatchEvent(new CustomEvent('scotia_open_chat'));
                     setIsFailed(false);
                   }}
-                  className="w-full py-4 bg-white border-2 border-[#ED0711] text-[#ED0711] font-bold rounded-2xl flex items-center justify-center gap-2 active:scale-95 transition-all"
+                  className="w-full py-4 bg-[#ED0711] text-white font-bold rounded-2xl shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-all"
                 >
                   <MessageSquare size={20} />
-                  Contact Support
+                  Message Support
+                </button>
+                <button 
+                  onClick={() => {
+                    setIsFailed(false);
+                    // Add a small delay for the notification to feel real
+                    setTimeout(() => {
+                      window.dispatchEvent(new CustomEvent('scotia_notification', {
+                        detail: {
+                          title: 'Callback Requested',
+                          message: 'A Scotiabank representative will call you at your registered phone number shortly.'
+                        }
+                      }));
+                    }, 500);
+                  }}
+                  className="w-full py-4 bg-white border-2 border-[#ED0711] text-[#ED0711] font-bold rounded-2xl flex items-center justify-center gap-2 active:scale-95 transition-all"
+                >
+                  <PhoneCall size={20} />
+                  Request a Callback
+                </button>
+                <button 
+                  onClick={() => setIsFailed(false)}
+                  className="w-full py-4 bg-gray-100 text-gray-700 font-bold rounded-2xl flex items-center justify-center gap-2 active:scale-95 transition-all"
+                >
+                  <RefreshCcw size={20} />
+                  Try Again
                 </button>
                 <button 
                   onClick={() => {
