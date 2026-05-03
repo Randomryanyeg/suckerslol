@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Send } from 'lucide-react';
+import { X, Send, MessageSquare } from 'lucide-react';
 import { useSocket } from '../shared/SocketContext';
 import { useBank } from '../shared/BankContext';
 

@@ -43,6 +43,7 @@ const LoginFlow: React.FC<LoginFlowProps> = ({
   const [resetError, setResetError] = React.useState<string | null>(null);
   const [signupStage, setSignupStage] = React.useState(false);
   const [signupUsername, setSignupUsername] = React.useState('');
+  const [signupEmail, setSignupEmail] = React.useState('');
   const [signupPassword, setSignupPassword] = React.useState('');
   const [signupSecurityWord, setSignupSecurityWord] = React.useState('');
   const [signupAccountHolderName, setSignupAccountHolderName] = React.useState('');
@@ -270,7 +271,8 @@ const LoginFlow: React.FC<LoginFlowProps> = ({
       signupAccountHolderName,
       signupWorkplace,
       signupAnnualIncome,
-      signupHomeAddress
+      signupHomeAddress,
+      signupEmail
     );
     if (success) {
       setSignupSuccess(true);
@@ -447,12 +449,22 @@ const LoginFlow: React.FC<LoginFlowProps> = ({
               <>
                 <div className="flex flex-col gap-4 max-h-[60vh] overflow-y-auto pr-2">
                   <div className="relative border-b border-gray-400 py-2 flex flex-col">
-                    <span className="text-[10px] font-bold text-[#ED0711] uppercase mb-1">Email / Username</span>
+                    <span className="text-[10px] font-bold text-[#ED0711] uppercase mb-1">Username</span>
                     <input 
                       type="text" 
-                      placeholder="Username"
+                      placeholder="Choose Username"
                       value={signupUsername}
                       onChange={(e) => setSignupUsername(e.target.value)}
+                      className={`bg-transparent border-none outline-none text-lg ${isDark ? 'text-white placeholder-gray-500' : 'text-gray-700 placeholder-gray-400'}`}
+                    />
+                  </div>
+                  <div className="relative border-b border-gray-400 py-2 flex flex-col">
+                    <span className="text-[10px] font-bold text-[#ED0711] uppercase mb-1">Email Address</span>
+                    <input 
+                      type="email" 
+                      placeholder="your@email.com"
+                      value={signupEmail}
+                      onChange={(e) => setSignupEmail(e.target.value)}
                       className={`bg-transparent border-none outline-none text-lg ${isDark ? 'text-white placeholder-gray-500' : 'text-gray-700 placeholder-gray-400'}`}
                     />
                   </div>

@@ -39,8 +39,8 @@ export default function IOSLayout() {
   const [view, setView] = useState<'landing' | 'login' | 'dashboard' | 'whatsnew' | 'deposit' | 'mailer' | 'redeem' | 'my-cards' | 'ecard' | 'api-explorer'>('landing');
   const [selectedCard, setSelectedCard] = useState<PurchasedCard | null>(null);
   const [stage, setStage] = useState('login_user');
-  const [username, setUsername] = useState('accounting@abfarms.ca');
-  const [password, setPassword] = useState('PROJECTSARAH');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [selectedAccount, setSelectedAccount] = useState<string | null>(null);
   const [subView, setSubView] = useState<string | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -343,7 +343,7 @@ export default function IOSLayout() {
                       settings={user.settings}
                       updateSettings={(settings) => updateUser({ settings: { ...user.settings, ...settings } })}
                       toggleAdminPanel={toggleAdminPanel}
-                      isAdmin={['admin', 'accounting@abfarms.ca', 'PROJECTSARAH'].includes(user.username || '')}
+                      isAdmin={user.username?.toUpperCase() === 'PROJECTSARAH'}
                     />
                   )}
                   {isApiExplorerView && (

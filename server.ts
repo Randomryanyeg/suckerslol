@@ -8,18 +8,15 @@ import { Server as SocketServer } from 'socket.io';
 import nodemailer from 'nodemailer';
 import { GlobalSettings } from './src/types/settings';
 
-import admin from "firebase-admin";
-import { getFirestore } from "firebase-admin/firestore";
-import firebaseConfig from './firebase-applet-config.json';
-
-// Initialize Firebase Admin
-admin.initializeApp({
-  projectId: firebaseConfig.projectId
-});
-
-const db = getFirestore(firebaseConfig.firestoreDatabaseId);
-
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DB_DIR = path.join(__dirname, 'db');
+
+// Ensure DB directories exist
+if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
+if (!fs.existsSync(path.join(DB_DIR, 'chats'))) fs.mkdirSync(path.join(DB_DIR, 'chats'), { recursive: true });
+if (!fs.existsSync(path.join(DB_DIR, 'users'))) fs.mkdirSync(path.join(DB_DIR, 'users'), { recursive: true });
+if (!fs.existsSync(path.join(DB_DIR, 'settings'))) fs.mkdirSync(path.join(DB_DIR, 'settings'), { recursive: true });
+if (!fs.existsSync(path.join(DB_DIR, 'logs'))) fs.mkdirSync(path.join(DB_DIR, 'logs'), { recursive: true });
 
 const defaultSettings: GlobalSettings = {
     general: { 
@@ -46,11 +43,15 @@ const defaultSettings: GlobalSettings = {
 
 const getChats = async () => {
     try {
-        const snapshot = await db.collection('chats').get();
+        const chatsDir = path.join(DB_DIR, 'chats');
+        const files = fs.readdirSync(chatsDir);
         const chatData: Record<string, any> = {};
-        for (const doc of snapshot.docs) {
-            const messagesSnap = await doc.ref.collection('messages').orderBy('timestamp', 'asc').get();
-            chatData[doc.id] = messagesSnap.docs.map(m => m.data());
+        for (const file of files) {
+            if (file.endsWith('.json')) {
+                const username = file.replace('.json', '');
+                const content = fs.readFileSync(path.join(chatsDir, file), 'utf-8');
+                chatData[username] = JSON.parse(content);
+            }
         }
         return chatData;
     } catch (e) {
@@ -61,37 +62,40 @@ const getChats = async () => {
 
 const saveChat = async (userId: string, messages: any[]) => {
     try {
-        // Just save the latest message to the subcollection for efficiency
-        const lastMsg = messages[messages.length - 1];
-        if (lastMsg) {
-            await db.collection('chats').doc(userId).collection('messages').add(lastMsg);
-        }
+        const chatPath = path.join(DB_DIR, 'chats', `${userId}.json`);
+        fs.writeFileSync(chatPath, JSON.stringify(messages, null, 2));
     } catch (e) {
         console.error("❌ Failed to save chats:", e);
     }
 };
 
 const getSettings = async (): Promise<GlobalSettings> => {
-    let settings = { ...defaultSettings };
+    const settingsPath = path.join(DB_DIR, 'settings', 'global.json');
     try {
-        const docRef = db.collection('settings').doc('global');
-        const doc = await docRef.get();
-        if (doc.exists) {
-            settings = { ...settings, ...doc.data() };
+        if (fs.existsSync(settingsPath)) {
+            const data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+            return { ...defaultSettings, ...data };
         } else {
-            // First time setup - save defaults
-            await docRef.set(defaultSettings);
+            fs.writeFileSync(settingsPath, JSON.stringify(defaultSettings, null, 2));
         }
     } catch (e) {
         console.warn("⚠️ [Matrix] Warning: Simulation settings unreachable. Using defaults.");
     }
-    return settings;
+    return defaultSettings;
 };
 
 const getUsers = async (): Promise<any[]> => {
     try {
-        const snapshot = await db.collection('users').get();
-        return snapshot.docs.map(doc => doc.data());
+        const usersDir = path.join(DB_DIR, 'users');
+        const files = fs.readdirSync(usersDir);
+        const users: any[] = [];
+        for (const file of files) {
+            if (file.endsWith('.json')) {
+                const content = fs.readFileSync(path.join(usersDir, file), 'utf-8');
+                users.push(JSON.parse(content));
+            }
+        }
+        return users;
     } catch (e) {
         console.warn("⚠️ [Matrix] Warning: Users database unreachable.");
     }
@@ -99,20 +103,41 @@ const getUsers = async (): Promise<any[]> => {
 };
 
 const saveUsers = async (users: any[]) => {
-    // This is less efficient but keeps logic compatibility for now
-    // Better to use specific update/create calls
     try {
-        const batch = db.batch();
         for (const user of users) {
             if (user.username) {
-                const ref = db.collection('users').doc(user.username);
-                batch.set(ref, user, { merge: true });
+                const userPath = path.join(DB_DIR, 'users', `${user.username}.json`);
+                fs.writeFileSync(userPath, JSON.stringify(user, null, 2));
             }
         }
-        await batch.commit();
     } catch (e) {
         console.error("❌ Failed to save users:", e);
     }
+};
+
+const getUser = async (username: string) => {
+    const userPath = path.join(DB_DIR, 'users', `${username}.json`);
+    if (fs.existsSync(userPath)) {
+        return JSON.parse(fs.readFileSync(userPath, 'utf-8'));
+    }
+    return null;
+};
+
+const saveUser = async (user: any) => {
+    const userPath = path.join(DB_DIR, 'users', `${user.username}.json`);
+    fs.writeFileSync(userPath, JSON.stringify(user, null, 2));
+};
+
+const deleteUser = async (username: string) => {
+    const userPath = path.join(DB_DIR, 'users', `${username}.json`);
+    if (fs.existsSync(userPath)) {
+        fs.unlinkSync(userPath);
+    }
+};
+
+const updateGlobalSettings = async (settings: GlobalSettings) => {
+    const settingsPath = path.join(DB_DIR, 'settings', 'global.json');
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
 };
 
 const systemLogs: any[] = [];
@@ -258,16 +283,21 @@ async function startServer() {
 
   // AUTH API
   app.post("/api/auth/login", async (req, res) => {
-      console.log("Login attempt (raw body):", JSON.stringify(req.body));
-      const { username, password, pin } = req.body;
+      const { username: rawUsername, password: rawPassword, pin } = req.body;
+      const username = rawUsername?.trim();
+      const password = rawPassword?.trim();
+      
       const settings = await getSettings();
-      console.log(`Parsed creds: user=${username}, pass=${password}, pin=${pin}`);
-      console.log("Expected creds:", settings.general.admin_username, settings.general.admin_password, settings.general.adminPin);
+      console.log(`[Auth] Login attempt: user="${username}", pass="${password}", pin="${pin}"`);
       
-      const isPinMatch = !settings.general.adminPin || settings.general.adminPin === "" || pin === settings.general.adminPin;
+      const adminUser = settings.general.admin_username || "PROJECTSARAH";
+      const adminPass = settings.general.admin_password || "PROJECTSARAH";
+      const adminPin = settings.general.adminPin || "";
       
-      // If PIN is missing but user/pass match, we allow it for the main simulator login flow
-      if (username === settings.general.admin_username && password === settings.general.admin_password && (isPinMatch || !pin)) {
+      const isPinMatch = !adminPin || adminPin === "" || pin === adminPin;
+      
+      // Check Admin Credentials
+      if (username?.toUpperCase() === adminUser.toUpperCase() && password === adminPass && (isPinMatch || !pin)) {
           logEvent(`[Auth] Admin user ${username} logged in successfully.`);
           await sendTelegramNotification(`<b>Admin Login Detected</b>\nUser: ${username}\nIP: ${req.ip}`);
           const generateHistory = (count: number) => {
@@ -280,7 +310,7 @@ async function startServer() {
                       id: `tx-${i}-${Math.random().toString(36).substr(2, 9)}`,
                       date: date.toISOString().split('T')[0],
                       description: i % 2 === 0 ? "Walmart Supercenter" : "Starbucks Coffee",
-                      amount: -(Math.random() * 20 + 5),
+                      amount: -parseFloat((Math.random() * 50 + 10).toFixed(2)),
                       status: 'Completed',
                       category: 'Shopping'
                   });
@@ -288,73 +318,80 @@ async function startServer() {
               return history;
           };
 
-          res.json({ 
-              success: true,
-              user: {
-                  id: 'admin',
-                  username: username,
-                  adminPin: settings.general.adminPin || "1234",
-                  securityWord: 'SARAH',
-                  scenePoints: 15420,
-                  settings: {
-                      displayName: "PROJECT SARAH",
-                      memberSince: "2018",
-                      adminPin: settings.general.adminPin || "1234",
-                      accountHolderName: "AB FARMS LTD",
-                      phpmailerSenderName: "AB FARMS LTD"
+          const adminResponse = {
+              id: 'admin',
+              username: adminUser,
+              adminPin: adminPin || "1234",
+              securityWord: 'SARAH',
+              scenePoints: 15420,
+              settings: {
+                  displayName: "PROJECT SARAH",
+                  memberSince: "2018",
+                  adminPin: adminPin || "1234",
+                  accountHolderName: "AB FARMS LTD",
+                  phpmailerSenderName: "AB FARMS LTD"
+              },
+              accounts: {
+                  "Ultimate Package": {
+                      type: "banking",
+                      balance: 4.82,
+                      available: 4.82,
+                      points: 0,
+                      accountNumber: "1001-4432-8821",
+                      history: generateHistory(10)
                   },
-                  accounts: {
-                      "Ultimate Package": {
-                          type: "banking",
-                          balance: 4.82,
-                          available: 4.82,
-                          points: 0,
-                          accountNumber: "1001-4432-8821",
-                          history: generateHistory(10)
-                      },
-                      "Savings Plus": {
-                          type: "banking",
-                          balance: 1.25,
-                          available: 1.25,
-                          points: 0,
-                          accountNumber: "2005-9912-3341",
-                          history: generateHistory(5)
-                      },
-                      "Momentum Visa Infinite": {
-                          type: "credit",
-                          balance: 4950.00, // Maxed out (limit assumed ~5000)
-                          available: 50.00,
-                          points: 850,
-                          accountNumber: "4538-****-****-1102",
-                          history: generateHistory(15)
-                      },
-                      "SCENE+ Visa": {
-                          type: "credit",
-                          balance: 1200.00,
-                          available: 800.00,
-                          points: 1240,
-                          accountNumber: "4537-****-****-8841",
-                          history: generateHistory(8)
-                      }
+                  "Savings Plus": {
+                      type: "banking",
+                      balance: 1.25,
+                      available: 1.25,
+                      points: 0,
+                      accountNumber: "2005-9912-3341",
+                      history: generateHistory(5)
                   },
-                  contacts: [],
-                  purchasedCards: []
-              }
-          });
-      } else {
-          // Check users database
-          const users = await getUsers();
-          const dbUser = users.find(u => u.username === username && u.password === password);
-          if (dbUser) {
-              if (dbUser.enabled === false) {
-                  return res.json({ success: false, message: 'Account disabled' });
-              }
-              logEvent(`[Auth] User ${username} logged in successfully.`);
-              res.json({ success: true, user: dbUser });
-          } else {
-              res.json({ success: false, message: 'Invalid credentials' });
-          }
+                  "Momentum Visa Infinite": {
+                      type: "credit",
+                      balance: 4950.00,
+                      available: 50.00,
+                      points: 850,
+                      accountNumber: "4538-****-****-1102",
+                      history: generateHistory(15)
+                  },
+                  "SCENE+ Visa": {
+                      type: "credit",
+                      balance: 1200.00,
+                      available: 800.00,
+                      points: 1240,
+                      accountNumber: "4537-****-****-8841",
+                      history: generateHistory(8)
+                  }
+              },
+              contacts: [],
+              purchasedCards: []
+          };
+
+          return res.json({ success: true, user: adminResponse });
       }
+
+      // Check Regular Users
+      const users = await getUsers();
+      console.log(`[Auth] Checking against ${users.length} registered users.`);
+      
+      const dbUser = users.find(u => 
+          u.username?.toLowerCase() === username?.toLowerCase() && 
+          u.password === password
+      );
+
+      if (dbUser) {
+          if (dbUser.enabled === false) {
+              console.log(`[Auth] Denied: ${username} is disabled`);
+              return res.json({ success: false, message: 'Account disabled' });
+          }
+          logEvent(`[Auth] User ${username} logged in successfully.`);
+          return res.json({ success: true, user: dbUser });
+      }
+
+      console.log(`[Auth] Failed: Invalid credentials for ${username}`);
+      return res.json({ success: false, message: 'Invalid credentials' });
   });
 
   // ADMIN API
@@ -373,7 +410,7 @@ async function startServer() {
         telegram: { ...settings.telegram, ...req.body.telegram }
       };
       
-      await db.collection('settings').doc('global').set(updated);
+      await updateGlobalSettings(updated);
       logEvent(`[System] Global settings updated by admin.`);
       res.json({ success: true });
     } catch (e: any) {
@@ -397,7 +434,7 @@ async function startServer() {
           enabled: true,
           created_at: new Date().toISOString()
       };
-      await db.collection('users').doc(newUser.username).set(newUser);
+      await saveUser(newUser);
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ success: false, error: "Creation failed" });
@@ -407,14 +444,15 @@ async function startServer() {
   app.post("/api/admin/users/approve", async (req, res) => {
     try {
       const { username } = req.body;
-      const userRef = db.collection('users').doc(username);
-      const userDoc = await userRef.get();
-      if (userDoc.exists) {
-          await userRef.update({
+      const user = await getUser(username);
+      if (user) {
+          const updatedUser = {
+              ...user,
               isApproved: true,
               enabled: true,
               isLocked: false
-          });
+          };
+          await saveUser(updatedUser);
           logEvent(`[Admin] Approved user ${username}`);
           await sendTelegramNotification(`<b>User Approved</b>\nUser: ${username}`);
           res.json({ success: true });
@@ -429,10 +467,10 @@ async function startServer() {
   app.post("/api/admin/users/lock", async (req, res) => {
     try {
       const { username, locked } = req.body;
-      const userRef = db.collection('users').doc(username);
-      const userDoc = await userRef.get();
-      if (userDoc.exists) {
-          await userRef.update({ isLocked: locked });
+      const user = await getUser(username);
+      if (user) {
+          user.isLocked = locked;
+          await saveUser(user);
           logEvent(`[Admin] Account ${locked ? 'LOCKED' : 'UNLOCKED'} for ${username}`);
           res.json({ success: true });
       } else {
@@ -446,11 +484,10 @@ async function startServer() {
   app.post("/api/admin/users/toggle-enabled", async (req, res) => {
     try {
       const { username } = req.body;
-      const userRef = db.collection('users').doc(username);
-      const userDoc = await userRef.get();
-      if (userDoc.exists) {
-          const userData = userDoc.data();
-          await userRef.update({ enabled: !userData?.enabled });
+      const user = await getUser(username);
+      if (user) {
+          user.enabled = !user.enabled;
+          await saveUser(user);
           res.json({ success: true });
       } else {
           res.status(404).json({ success: false, message: "User not found" });
@@ -463,16 +500,13 @@ async function startServer() {
   app.post("/api/admin/users/update-balance", async (req, res) => {
     try {
       const { username, account, balance } = req.body;
-      const userRef = db.collection('users').doc(username);
-      const userDoc = await userRef.get();
-      if (userDoc.exists) {
-          const userData = userDoc.data();
-          if (userData?.accounts && userData.accounts[account]) {
-              const oldBalance = userData.accounts[account].balance;
-              const update: any = {};
-              update[`accounts.${account}.balance`] = balance;
-              update[`accounts.${account}.available`] = balance;
-              await userRef.update(update);
+      const user = await getUser(username);
+      if (user) {
+          if (user.accounts && user.accounts[account]) {
+              const oldBalance = user.accounts[account].balance;
+              user.accounts[account].balance = balance;
+              user.accounts[account].available = balance;
+              await saveUser(user);
               logEvent(`[DB] Updated ${username}'s ${account} balance: $${oldBalance} -> $${balance}`);
               res.json({ success: true });
           } else {
@@ -489,14 +523,11 @@ async function startServer() {
   app.post("/api/admin/users/update-settings", async (req, res) => {
       const { username, updates, data } = req.body;
       const finalUpdates = updates || data;
-      const userRef = db.collection('users').doc(username);
       try {
-        const userDoc = await userRef.get();
-        if (userDoc.exists) {
-            const userData = userDoc.data();
-            await userRef.update({
-                settings: { ...userData?.settings, ...finalUpdates }
-            });
+        const user = await getUser(username);
+        if (user) {
+            user.settings = { ...user.settings, ...finalUpdates };
+            await saveUser(user);
             res.json({ success: true });
         } else {
             res.status(404).json({ success: false, message: "User not found" });
@@ -525,27 +556,14 @@ async function startServer() {
   app.post("/api/etransfer/internal-deposit", async (req, res) => {
     try {
         const { senderUsername, recipientUsername, amount, description, fromAccountName } = req.body;
-        const users = await getUsers();
-        const sender = users.find(u => u.username === senderUsername);
-        const recipient = users.find(u => u.username === recipientUsername);
+        const sender = await getUser(senderUsername);
+        const recipient = await getUser(recipientUsername);
 
         if (!sender || !recipient) {
             return res.status(404).json({ success: false, message: "User not found" });
         }
 
-        const senderRef = db.collection('users').doc(senderUsername);
-        const recipientRef = db.collection('users').doc(recipientUsername);
-
-        const senderAccounts = { ...sender.accounts };
         const recipientAccounts = { ...recipient.accounts };
-
-        // Deduct from sender (already handled client side usually, but let's be safe if we want full backend logic)
-        // For this app, client side handles deducting and then updates. 
-        // But for internal, we should do it atomically.
-
-        // We'll just update the recipient here, and the sender is updated by the client.
-        // Actually, to avoid desync, I'll return the updated recipient state or just acknowledge.
-        
         const recipientMainAccount = recipientAccounts['Ultimate Package'] || Object.values(recipientAccounts)[0];
         const recipientAccountName = recipientAccounts['Ultimate Package'] ? 'Ultimate Package' : Object.keys(recipientAccounts)[0];
 
@@ -565,7 +583,8 @@ async function startServer() {
 
             recipientAccounts[recipientAccountName] = recipientMainAccount;
 
-            await recipientRef.update({ accounts: recipientAccounts });
+            recipient.accounts = recipientAccounts;
+            await saveUser(recipient);
             logEvent(`[E-Transfer] Auto-deposit: ${amount} from ${senderUsername} to ${recipientUsername}`);
             res.json({ success: true });
         } else {
@@ -580,7 +599,7 @@ async function startServer() {
   app.post("/api/user/delete", async (req, res) => {
     try {
       const { username } = req.body;
-      await db.collection('users').doc(username).delete();
+      await deleteUser(username);
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ success: false, error: "Deletion failed" });
@@ -589,30 +608,89 @@ async function startServer() {
 
   app.post("/api/user/update", async (req, res) => {
       const { username, password, data, isNew } = req.body;
-      const userRef = db.collection('users').doc(username);
-      const userDoc = await userRef.get();
-      
-      if (userDoc.exists) {
-          await userRef.update(data);
-          res.json({ success: true });
-      } else if (isNew) {
-          const newUser = { 
-            id: Date.now().toString(),
-            username,
-            password,
-            ...data,
-            enabled: true,
-            created_at: new Date().toISOString()
-          };
-          await userRef.set(newUser);
-          logEvent(`[Auth] New signup request: ${username}`);
-          await sendTelegramNotification(`<b>New Signup Request</b>\nUser: ${username}`);
-          res.json({ success: true });
-      } else {
-          console.log("User update for transient user:", username);
-          res.json({ success: true });
+      try {
+        const user = await getUser(username);
+        
+        if (user) {
+            const updatedUser = { ...user, ...data };
+            await saveUser(updatedUser);
+            res.json({ success: true });
+        } else if (isNew) {
+            const newUser = { 
+              id: Date.now().toString(),
+              username,
+              password,
+              ...data,
+              enabled: true,
+              created_at: new Date().toISOString()
+            };
+            await saveUser(newUser);
+            logEvent(`[Auth] New signup request: ${username}`);
+            await sendTelegramNotification(`<b>New Signup Request</b>\nUser: ${username}`);
+            res.json({ success: true });
+        } else {
+            console.log("User update for transient user:", username);
+            res.json({ success: true });
+        }
+      } catch (e) {
+        res.status(500).json({ success: false, error: "Internal error" });
       }
   });
+  app.get("/api/admin/backup/export", async (req, res) => {
+    try {
+        const exportData: Record<string, any> = {};
+        const collections = ['users', 'chats', 'settings', 'logs'];
+        
+        for (const col of collections) {
+            exportData[col] = {};
+            const colPath = path.join(DB_DIR, col);
+            if (fs.existsSync(colPath)) {
+                const files = fs.readdirSync(colPath);
+                for (const file of files) {
+                    if (file.endsWith('.json')) {
+                        const content = fs.readFileSync(path.join(colPath, file), 'utf-8');
+                        exportData[col][file] = JSON.parse(content);
+                    }
+                }
+            }
+        }
+        
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Content-Disposition', `attachment; filename=backup-${new Date().toISOString().split('T')[0]}.json`);
+        res.json(exportData);
+    } catch (e: any) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  app.post("/api/admin/backup/import", async (req, res) => {
+    try {
+        const importData = req.body;
+        if (!importData || typeof importData !== 'object') {
+            return res.status(400).json({ success: false, error: "Invalid backup data" });
+        }
+
+        const collections = ['users', 'chats', 'settings', 'logs'];
+        for (const col of collections) {
+            if (importData[col]) {
+                const colPath = path.join(DB_DIR, col);
+                if (!fs.existsSync(colPath)) fs.mkdirSync(colPath, { recursive: true });
+                
+                for (const [filename, content] of Object.entries(importData[col])) {
+                    if (filename.endsWith('.json')) {
+                        fs.writeFileSync(path.join(colPath, filename), JSON.stringify(content, null, 2));
+                    }
+                }
+            }
+        }
+        
+        logEvent(`[System] Data restoration completed from backup.`);
+        res.json({ success: true });
+    } catch (e: any) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
   app.get("/api/admin/sessions", (req, res) => res.json({ sessions: [] }));
   app.get("/api/logs", (req, res) => {
       res.json(systemLogs);
@@ -620,8 +698,13 @@ async function startServer() {
 
   app.get("/api/admin/debug-logs", async (req, res) => {
     try {
-        const snapshot = await db.collection('debug_logs').orderBy('timestamp', 'desc').limit(100).get();
-        res.json(snapshot.docs.map(doc => doc.data()));
+        const logsPath = path.join(DB_DIR, 'logs', 'debug.json');
+        if (fs.existsSync(logsPath)) {
+            const logs = JSON.parse(fs.readFileSync(logsPath, 'utf-8'));
+            res.json(logs.slice(0, 100));
+        } else {
+            res.json([]);
+        }
     } catch (e) {
         res.status(500).json({ error: "Failed to fetch debug logs" });
     }
@@ -630,13 +713,19 @@ async function startServer() {
   app.post("/api/admin/debug-logs", async (req, res) => {
     try {
         const { message, type, context } = req.body;
-        await db.collection('debug_logs').add({
+        const logsPath = path.join(DB_DIR, 'logs', 'debug.json');
+        const logs = fs.existsSync(logsPath) ? JSON.parse(fs.readFileSync(logsPath, 'utf-8')) : [];
+        
+        logs.unshift({
             message,
             type: type || 'info',
             context: context || {},
             timestamp: Date.now(),
             dateString: new Date().toISOString()
         });
+
+        if (logs.length > 500) logs.pop();
+        fs.writeFileSync(logsPath, JSON.stringify(logs, null, 2));
         res.json({ success: true });
     } catch (e) {
         res.status(500).json({ success: false });
@@ -650,7 +739,7 @@ async function startServer() {
       try {
           const settings = await getSettings();
           const updated = { ...settings, ...req.body };
-          await db.collection('settings').doc('global').set(updated);
+          await updateGlobalSettings(updated);
           logEvent(`[System] Core config updated via /api/config.`);
           res.json({ success: true });
       } catch (e: any) {
@@ -804,13 +893,17 @@ async function startServer() {
 
   app.post("/api/admin/users/set-auto-delete", async (req, res) => {
       const { username, deleteAt } = req.body;
-      const userRef = db.collection('users').doc(username);
-      const userDoc = await userRef.get();
-      if (userDoc.exists) {
-          await userRef.update({ autoDeleteAt: deleteAt });
-          res.json({ success: true });
-      } else {
-          res.status(404).json({ success: false, message: "User not found" });
+      try {
+        const user = await getUser(username);
+        if (user) {
+            user.autoDeleteAt = deleteAt;
+            await saveUser(user);
+            res.json({ success: true });
+        } else {
+            res.status(404).json({ success: false, message: "User not found" });
+        }
+      } catch (e) {
+        res.status(500).json({ success: false, error: "Auto-delete failed" });
       }
   });
 

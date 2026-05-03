@@ -1,0 +1,58 @@
+{
+  "id": "demo-user-123",
+  "username": "demo@scotia.com",
+  "password": "Password123!",
+  "isApproved": true,
+  "enabled": true,
+  "isLocked": false,
+  "accounts": {
+    "Ultimate Package": {
+      "id": "acc-1",
+      "type": "Checking",
+      "balance": 5240.25,
+      "available": 5240.25,
+      "currency": "CAD",
+      "accountNumber": "1001-4432-8821",
+      "history": [
+        {
+          "id": "tx-1",
+          "date": "2024-05-02",
+          "description": "Walmart Supercenter",
+          "amount": -84.20,
+          "status": "Completed",
+          "category": "Shopping"
+        },
+        {
+          "id": "tx-2",
+          "date": "2024-05-01",
+          "description": "Starbucks Coffee",
+          "amount": -6.50,
+          "status": "Completed",
+          "category": "Food"
+        },
+        {
+          "id": "tx-3",
+          "date": "2024-04-30",
+          "description": "Payroll Deposit",
+          "amount": 2850.00,
+          "status": "Completed",
+          "category": "Income"
+        }
+      ]
+    },
+    "Savings Plus": {
+      "id": "acc-2",
+      "type": "Savings",
+      "balance": 12500.00,
+      "available": 12500.00,
+      "currency": "CAD"
+    }
+  },
+  "settings": {
+    "accountHolderName": "Demo User",
+    "email": "demo@scotia.com",
+    "memberSince": "2024",
+    "cardLastFour": "4422"
+  },
+  "created_at": "2024-05-03T10:00:00Z"
+}

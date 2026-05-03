@@ -1,12 +1,13 @@
-const CACHE_NAME = 'scotia-v2';
+const CACHE_NAME = 'scotia-v3';
 const ASSETS = [
   '/',
   '/index.html',
   '/offline.html',
-  '/src/main.tsx',
-  '/src/App.tsx',
-  '/src/index.css',
-  'https://www.scotiabank.com/content/dam/scotiabank/canada/en/images/logos/scotiabank-logo.svg'
+  '/manifest.json',
+  '/icon.svg',
+  '/vite.svg',
+  'https://www.scotiabank.com/content/dam/scotiabank/canada/en/images/logos/scotiabank-logo.svg',
+  'https://cdn.brandfetch.io/idpIpGPfn2/w/400/h/400/theme/dark/icon.jpeg?c=1dxbfHSJFAPEGdCLU4o5B'
 ];
 
 self.addEventListener('install', (event) => {

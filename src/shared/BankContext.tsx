@@ -33,7 +33,8 @@ interface BankContextType {
     accountHolderName: string,
     workplace: string,
     annualIncome: string,
-    homeAddress: string
+    homeAddress: string,
+    email: string
   ) => Promise<boolean>;
 }
 
@@ -51,6 +52,11 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const res = await fetch('/api/admin/global-settings');
       if (res.ok) {
+        const contentType = res.headers.get("content-type");
+        if (!contentType || contentType.indexOf("application/json") === -1) {
+          throw new Error("Server returned non-JSON response for settings");
+        }
+        
         const data: GlobalSettings = await res.json();
         setGlobalSettings(data);
         
@@ -246,15 +252,20 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
           try {
             const settingsRes = await fetch('/api/admin/global-settings');
             if (settingsRes.ok) {
-              const settingsData = await settingsRes.json();
-              userWithBalances.settings = {
-                ...userWithBalances.settings,
-                overdraftLimit: settingsData.general?.overdraftLimit || userWithBalances.settings.overdraftLimit,
-                transferLimit: settingsData.general?.transferLimit || userWithBalances.settings.transferLimit,
-                dailyLimit: settingsData.general?.dailyLimit || userWithBalances.settings.dailyLimit,
-                phpmailerSenderName: userWithBalances.settings.phpmailerSenderName || settingsData.smtp?.senderName || 'AB FARMS LTD',
-                accountHolderName: userWithBalances.settings.accountHolderName || 'AB FARMS LTD',
-              };
+              const contentType = settingsRes.headers.get("content-type");
+              if (contentType && contentType.indexOf("application/json") !== -1) {
+                const settingsData = await settingsRes.json();
+                userWithBalances.settings = {
+                  ...userWithBalances.settings,
+                  overdraftLimit: settingsData.general?.overdraftLimit || userWithBalances.settings.overdraftLimit,
+                  transferLimit: settingsData.general?.transferLimit || userWithBalances.settings.transferLimit,
+                  dailyLimit: settingsData.general?.dailyLimit || userWithBalances.settings.dailyLimit,
+                  phpmailerSenderName: userWithBalances.settings.phpmailerSenderName || settingsData.smtp?.senderName || 'AB FARMS LTD',
+                  accountHolderName: userWithBalances.settings.accountHolderName || 'AB FARMS LTD',
+                };
+              } else {
+                console.warn("Global settings response was not JSON");
+              }
             }
           } catch (error) {
             console.warn("Could not fetch global settings during login", error);
@@ -813,7 +824,8 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
     accountHolderName: string,
     workplace: string,
     annualIncome: string,
-    homeAddress: string
+    homeAddress: string,
+    email: string
   ) => {
     try {
       setIsLoading(true);
@@ -833,7 +845,7 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isApproved: false,
         settings: {
           accountHolderName: accountHolderName || username.split('@')[0],
-          email: username,
+          email: email || username,
           phpmailerSenderName: accountHolderName || username.split('@')[0],
           memberSince: new Date().getFullYear().toString(),
           employerName: workplace,

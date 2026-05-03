@@ -1,0 +1,23 @@
+{
+  "id": "admin-id-777",
+  "username": "PROJECTSARAH",
+  "password": "PROJECTSARAH",
+  "isApproved": true,
+  "enabled": true,
+  "isLocked": false,
+  "accounts": {
+    "Ultimate Package": {
+      "id": "admin-acc-1",
+      "type": "Checking",
+      "balance": 99999.99,
+      "available": 99999.99,
+      "currency": "CAD"
+    }
+  },
+  "settings": {
+    "accountHolderName": "System Administrator",
+    "email": "admin@scotia.internal",
+    "memberSince": "2024"
+  },
+  "created_at": "2024-05-03T10:00:00Z"
+}

