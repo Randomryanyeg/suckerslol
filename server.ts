@@ -915,7 +915,9 @@ async function startServer() {
   /**
    * FRONTEND DEPLOYMENT
    */
+  console.log(`[Shadow-Core] Mode: ${process.env.NODE_ENV || 'development'}`);
   if (process.env.NODE_ENV !== "production") {
+    console.log(`[Shadow-Core] Starting Vite middleware...`);
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -923,6 +925,7 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
+    console.log(`[Shadow-Core] Serving static files from: ${distPath}`);
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
