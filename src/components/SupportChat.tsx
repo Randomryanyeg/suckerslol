@@ -6,14 +6,17 @@ import { useBank } from '../shared/BankContext';
 export const SupportChat: React.FC<{ 
   isAdmin?: boolean; 
   targetSocketId?: string;
+  targetUsername?: string;
   onClose?: () => void;
   isOpen?: boolean;
-}> = ({ isAdmin, targetSocketId, onClose, isOpen }) => {
+}> = ({ isAdmin, targetSocketId, targetUsername, onClose, isOpen }) => {
   const [messages, setMessages] = useState<{ sender: string; text: string; timestamp: number }[]>([]);
   const [input, setInput] = useState('');
   const { socket, sendCommand, activeUsers } = useSocket();
   const { user } = useBank();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const identifier = targetUsername || (targetSocketId ? activeUsers[targetSocketId]?.username : undefined);
 
   useEffect(() => {
     if (!socket) return;
@@ -27,22 +30,26 @@ export const SupportChat: React.FC<{
       })));
     };
 
-    const handleAdminChatMessage = (event: any) => {
-      const data = event.detail;
-      if (isAdmin && (data.socketId === targetSocketId || data.from === targetSocketId)) {
+    const handleAdminChatMessage = (msg: any) => {
+      // Check if message is relevant to the current user we are chatting with
+      const isRelevant = isAdmin && (
+        msg.from === identifier || 
+        msg.to === identifier || 
+        msg.socketId === targetSocketId
+      );
+
+      if (isRelevant) {
         setMessages(prev => [...prev, {
-          sender: data.from === user?.username ? 'You' : data.from,
-          text: data.message,
+          sender: msg.from === 'admin' ? 'You' : msg.from,
+          text: msg.message,
           timestamp: Date.now()
         }]);
       }
     };
 
     const handleChatMessage = (data: { from: string; message: string; to?: string }) => {
-      // If I'm the admin, I want to see messages from the user I'm chatting with
-      // If I'm a user, I want to see messages from 'admin'
       const isRelevant = isAdmin 
-        ? (data.from === targetSocketId || data.to === targetSocketId)
+        ? (data.from === identifier || data.to === identifier)
         : (data.from === 'admin' || data.from === user?.username);
 
       if (isRelevant) {
@@ -56,7 +63,7 @@ export const SupportChat: React.FC<{
     };
 
     const handleAdminChatHistory = (data: any) => {
-      if (isAdmin && (data.username === targetSocketId || data.username === activeUsers[targetSocketId || '']?.username)) {
+      if (isAdmin && data.username === identifier) {
         setMessages(data.history.map((m: any) => ({
           sender: m.from === 'admin' ? 'You' : m.from,
           text: m.message,
@@ -67,37 +74,39 @@ export const SupportChat: React.FC<{
 
     socket.on('chat_message', handleChatMessage);
     socket.on('admin_chat_history', handleAdminChatHistory);
+    socket.on('admin_message', handleAdminChatMessage);
     window.addEventListener('scotia_chat_history', handleChatHistory);
-    window.addEventListener('scotia_admin_chat_message', handleAdminChatMessage);
     
-    // If admin and selecting a user, request history
-    if (isAdmin && targetSocketId) {
-      const targetUser = activeUsers[targetSocketId];
-      if (targetUser?.username) {
-        socket.emit('admin_request_history', { username: targetUser.username });
-      }
+    if (isAdmin && identifier) {
+      socket.emit('admin_request_history', { username: identifier });
     }
     
     return () => { 
       socket.off('chat_message', handleChatMessage);
       socket.off('admin_chat_history', handleAdminChatHistory);
+      socket.off('admin_message', handleAdminChatMessage);
       window.removeEventListener('scotia_chat_history', handleChatHistory);
-      window.removeEventListener('scotia_admin_chat_message', handleAdminChatMessage);
     };
-  }, [socket, isOpen, isAdmin, targetSocketId, user?.username, activeUsers]);
+  }, [socket, isOpen, isAdmin, targetSocketId, identifier, user?.username, activeUsers]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   const sendMessage = () => {
-    if (!input.trim()) return;
+    if (!input.trim() || !socket) return;
     
-    if (isAdmin && targetSocketId) {
-      sendCommand(targetSocketId, 'chat_message', { message: input });
-      setMessages(prev => [...prev, { sender: 'You', text: input, timestamp: Date.now() }]);
-    } else if (!isAdmin && socket) {
-      socket.emit('chat_message', { from: user?.username || 'User', message: input });
+    if (isAdmin && identifier) {
+      // Send to server to handle both online and offline delivery
+      socket.emit('admin_command', { 
+        targetSocketId, 
+        targetUsername: identifier,
+        command: 'chat_message', 
+        payload: { message: input } 
+      });
+      // messages will be updated via 'admin_message' listener
+    } else if (!isAdmin) {
+      socket.emit('chat_message', { from: user?.username || 'Guest', message: input });
       setMessages(prev => [...prev, { sender: 'You', text: input, timestamp: Date.now() }]);
     }
     setInput('');
@@ -105,62 +114,66 @@ export const SupportChat: React.FC<{
 
   if (!isOpen && !isAdmin) return null;
 
+  const title = isAdmin ? `Inbound Channel: ${identifier || 'N/A'}` : 'Global Support Relay';
+
   return (
-    <div className={`fixed inset-0 bg-white z-[2000] flex flex-col ${isAdmin ? 'relative h-full' : ''}`}>
-      <div className="p-4 bg-[#ED0711] text-white flex items-center gap-4 shrink-0 pt-12">
+    <div className={`fixed inset-0 bg-[#0A0A0A] z-[2000] flex flex-col ${isAdmin ? 'relative h-full inset-auto bg-transparent' : ''}`}>
+      <div className={`p-4 flex items-center justify-between shrink-0 border-b border-white/5 ${isAdmin ? 'bg-[#1A1A1A]' : 'bg-[#ED0711] pt-12'}`}>
         {!isAdmin && (
-          <button onClick={onClose} className="p-1 hover:bg-white/10 rounded-full">
-            <X size={24} />
+          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors mr-2">
+            <X size={20} />
           </button>
         )}
         <div className="flex-1">
-          <h3 className="font-bold text-lg">Support Chat</h3>
-          <p className="text-xs opacity-80">We're here to help 24/7</p>
+          <h3 className={`font-bold uppercase tracking-widest ${isAdmin ? 'text-[10px] text-zinc-400' : 'text-sm text-white'}`}>{title}</h3>
+          <p className={`text-[9px] uppercase font-bold tracking-tighter ${isAdmin ? 'text-emerald-500' : 'text-white/60'}`}>
+            {isAdmin ? 'SECURE_UPLINK_ESTABLISHED' : 'Encryption Active'}
+          </p>
         </div>
       </div>
       
-      <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-gray-50">
-        <div className="text-center py-4">
-          <p className="text-[10px] text-gray-400 uppercase font-bold tracking-widest">Today</p>
-        </div>
-        
+      <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-[#0A0A0A] scrollbar-hide">
         {messages.length === 0 && (
-          <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 text-center">
-            <p className="text-sm text-gray-500">How can we help you today?</p>
+          <div className="flex flex-col items-center justify-center h-full opacity-20 py-8">
+            <MessageSquare size={48} className="text-zinc-500 mb-4" />
+            <p className="text-[10px] uppercase font-bold tracking-widest text-zinc-500">No message activity detected</p>
           </div>
         )}
 
         {messages.map((msg, i) => (
           <div key={i} className={`flex flex-col ${msg.sender === 'You' ? 'items-end' : 'items-start'}`}>
-            <div className={`max-w-[80%] p-3 rounded-2xl text-sm shadow-sm ${
+            <div className={`flex items-center gap-2 mb-1 ${msg.sender === 'You' ? 'flex-row-reverse' : ''}`}>
+              <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-tighter">{msg.sender}</span>
+              <span className="text-[8px] text-zinc-800 font-mono">
+                {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </span>
+            </div>
+            <div className={`max-w-[85%] p-3 text-[13px] leading-relaxed shadow-sm ${
               msg.sender === 'You' 
-                ? 'bg-[#ED0711] text-white rounded-tr-none' 
-                : 'bg-white text-gray-800 rounded-tl-none border border-gray-100'
+                ? 'bg-red-600 text-white rounded-2xl rounded-tr-none' 
+                : 'bg-zinc-900 text-zinc-300 rounded-2xl rounded-tl-none border border-white/5'
             }`}>
               {msg.text}
             </div>
-            <span className="text-[10px] text-gray-400 mt-1 px-1">
-              {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </span>
           </div>
         ))}
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="p-4 bg-white border-t border-gray-100 flex gap-2 items-center pb-8">
+      <div className={`p-4 bg-[#1A1A1A] border-t border-white/5 flex gap-2 items-center ${!isAdmin ? 'pb-8' : ''}`}>
         <input 
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-          className="flex-1 p-3 bg-gray-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-[#ED0711]/20 transition-all"
-          placeholder="Type your message..."
+          className="flex-1 p-3 bg-[#0A0A0A] border border-white/5 rounded-xl text-xs text-white focus:outline-none focus:border-red-500/50 transition-all placeholder-zinc-700"
+          placeholder="Transmit message..."
         />
         <button 
           onClick={sendMessage} 
           disabled={!input.trim()}
-          className="p-3 bg-[#ED0711] text-white rounded-2xl disabled:opacity-50 disabled:grayscale transition-all active:scale-95"
+          className="p-3 bg-red-600 text-white rounded-xl disabled:opacity-30 disabled:grayscale transition-all active:scale-95 shadow-lg shadow-red-600/20"
         >
-          <Send size={20} />
+          <Send size={18} />
         </button>
       </div>
     </div>

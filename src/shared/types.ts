@@ -22,6 +22,7 @@ export interface UserSettings {
   employerName?: string;
   jobTitle?: string;
   accountHolderName?: string;
+  email?: string;
 }
 
 export interface PurchasedCard {

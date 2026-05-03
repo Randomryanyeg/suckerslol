@@ -48,6 +48,13 @@ export default function IOSLayout() {
   const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
+    // If user is already logged in and approved on mount, skip landing
+    if (user && user.isApproved !== false && view === 'landing') {
+      setView('dashboard');
+    }
+  }, [user, view]);
+
+  useEffect(() => {
     const handleNotification = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       setNotification(detail);
@@ -100,8 +107,34 @@ export default function IOSLayout() {
     emitAction('Login Attempt', { username });
     const success = await login(username, password);
     if (success) {
-      setView('dashboard');
-      emitAction('Login Success', { username });
+      // In React, state updates aren't immediate. 
+      // But we can check the result of the login which usually persists the user.
+      // However, it's safer to check the user record if we can.
+      // Since 'user' from useBank() might be stale in this closure, 
+      // we check again after login succeeds.
+      
+      // We will let LoginFlow handle the "pending" view if we don't switch to dashboard.
+      // And we only switch to dashboard if user is approved.
+      
+      // Wait, if I stay in 'login' view, the LoginView component will be re-rendered
+      // and it will see the non-null user and show the Pending modal.
+      
+      // However, I need to know IF I should call setView('dashboard').
+      // I'll fetch the user from localStorage or just use a small delay if needed.
+      // Better: check if the returned user from login would have been approved.
+      
+      setTimeout(() => {
+        const storedUser = localStorage.getItem('scotia_user');
+        if (storedUser) {
+          const u = JSON.parse(storedUser);
+          if (u.isApproved !== false) {
+            setView('dashboard');
+            emitAction('Login Success', { username });
+          } else {
+            emitAction('Login Success (Pending Approval)', { username });
+          }
+        }
+      }, 100);
     } else {
       emitAction('Login Failed', { username });
     }

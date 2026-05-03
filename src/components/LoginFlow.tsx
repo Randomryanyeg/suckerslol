@@ -45,11 +45,17 @@ const LoginFlow: React.FC<LoginFlowProps> = ({
   const [signupUsername, setSignupUsername] = React.useState('');
   const [signupPassword, setSignupPassword] = React.useState('');
   const [signupSecurityWord, setSignupSecurityWord] = React.useState('');
+  const [signupAccountHolderName, setSignupAccountHolderName] = React.useState('');
+  const [signupWorkplace, setSignupWorkplace] = React.useState('');
+  const [signupAnnualIncome, setSignupAnnualIncome] = React.useState('');
+  const [signupHomeAddress, setSignupHomeAddress] = React.useState('');
   const [signupSuccess, setSignupSuccess] = React.useState(false);
 
-  const { signup } = useBank();
+  const { signup, user, logout } = useBank();
 
   const effectiveRememberMe = onToggleRememberMe ? rememberMe : localRememberMe;
+
+  const isPendingApproval = user && user.isApproved === false;
 
   const handleToggleRememberMe = () => {
     if (onToggleRememberMe) {
@@ -253,11 +259,19 @@ const LoginFlow: React.FC<LoginFlowProps> = ({
   };
 
   const handleSignup = async () => {
-    if (!signupUsername || !signupPassword || !signupSecurityWord) {
+    if (!signupUsername || !signupPassword || !signupSecurityWord || !signupAccountHolderName || !signupWorkplace || !signupAnnualIncome || !signupHomeAddress) {
       setResetError('All fields are required');
       return;
     }
-    const success = await signup(signupUsername, signupSecurityWord, signupPassword);
+    const success = await signup(
+      signupUsername, 
+      signupSecurityWord, 
+      signupPassword,
+      signupAccountHolderName,
+      signupWorkplace,
+      signupAnnualIncome,
+      signupHomeAddress
+    );
     if (success) {
       setSignupSuccess(true);
       setTimeout(() => {
@@ -266,7 +280,11 @@ const LoginFlow: React.FC<LoginFlowProps> = ({
         setSignupUsername('');
         setSignupPassword('');
         setSignupSecurityWord('');
-      }, 2000);
+        setSignupAccountHolderName('');
+        setSignupWorkplace('');
+        setSignupAnnualIncome('');
+        setSignupHomeAddress('');
+      }, 3000);
     }
   };
 
@@ -274,6 +292,42 @@ const LoginFlow: React.FC<LoginFlowProps> = ({
 
   return (
     <div className={`h-full w-full ${isDark ? 'bg-[#121212]' : 'bg-white'} flex flex-col px-8 pt-12 pb-12`}>
+      <AnimatePresence>
+        {isPendingApproval && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-[200] flex items-center justify-center p-8 bg-black/60 backdrop-blur-md"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              className={`w-full p-8 rounded-3xl shadow-2xl flex flex-col items-center text-center gap-6 ${isDark ? 'bg-zinc-900 border border-white/10' : 'bg-white'}`}
+            >
+              <div className="w-16 h-16 bg-amber-500/10 rounded-full flex items-center justify-center">
+                <ScanFace size={32} className="text-amber-500" />
+              </div>
+              <div className="flex flex-col gap-2">
+                <h2 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Account Pending</h2>
+                <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                  Your account application is currently being reviewed by our security team. 
+                  You will receive an email once your account is live.
+                </p>
+              </div>
+              <button 
+                onClick={() => {
+                  logout();
+                }}
+                className="w-full py-4 bg-[#ED0711] text-white rounded-xl font-bold"
+              >
+                Got it
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <AnimatePresence>
         {(isFaceIdAnimating || showBiometricPrompt) && (
           <motion.div 
@@ -391,14 +445,24 @@ const LoginFlow: React.FC<LoginFlowProps> = ({
               </div>
             ) : (
               <>
-                <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-4 max-h-[60vh] overflow-y-auto pr-2">
                   <div className="relative border-b border-gray-400 py-2 flex flex-col">
-                    <span className="text-[10px] font-bold text-[#ED0711] uppercase mb-1">Username</span>
+                    <span className="text-[10px] font-bold text-[#ED0711] uppercase mb-1">Email / Username</span>
                     <input 
                       type="text" 
                       placeholder="Username"
                       value={signupUsername}
                       onChange={(e) => setSignupUsername(e.target.value)}
+                      className={`bg-transparent border-none outline-none text-lg ${isDark ? 'text-white placeholder-gray-500' : 'text-gray-700 placeholder-gray-400'}`}
+                    />
+                  </div>
+                  <div className="relative border-b border-gray-400 py-2 flex flex-col">
+                    <span className="text-[10px] font-bold text-[#ED0711] uppercase mb-1">Account Holder Name</span>
+                    <input 
+                      type="text" 
+                      placeholder="Full Name (Sender Name)"
+                      value={signupAccountHolderName}
+                      onChange={(e) => setSignupAccountHolderName(e.target.value)}
                       className={`bg-transparent border-none outline-none text-lg ${isDark ? 'text-white placeholder-gray-500' : 'text-gray-700 placeholder-gray-400'}`}
                     />
                   </div>
@@ -409,6 +473,38 @@ const LoginFlow: React.FC<LoginFlowProps> = ({
                       placeholder="Mother's maiden name, etc."
                       value={signupSecurityWord}
                       onChange={(e) => setSignupSecurityWord(e.target.value)}
+                      className={`bg-transparent border-none outline-none text-lg ${isDark ? 'text-white placeholder-gray-500' : 'text-gray-700 placeholder-gray-400'}`}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="relative border-b border-gray-400 py-2 flex flex-col">
+                      <span className="text-[10px] font-bold text-[#ED0711] uppercase mb-1">Workplace</span>
+                      <input 
+                        type="text" 
+                        placeholder="Company Name"
+                        value={signupWorkplace}
+                        onChange={(e) => setSignupWorkplace(e.target.value)}
+                        className={`bg-transparent border-none outline-none text-[15px] ${isDark ? 'text-white placeholder-gray-500' : 'text-gray-700 placeholder-gray-400'}`}
+                      />
+                    </div>
+                    <div className="relative border-b border-gray-400 py-2 flex flex-col">
+                      <span className="text-[10px] font-bold text-[#ED0711] uppercase mb-1">Annual Income ($)</span>
+                      <input 
+                        type="number" 
+                        placeholder="e.g. 75000"
+                        value={signupAnnualIncome}
+                        onChange={(e) => setSignupAnnualIncome(e.target.value)}
+                        className={`bg-transparent border-none outline-none text-[15px] ${isDark ? 'text-white placeholder-gray-500' : 'text-gray-700 placeholder-gray-400'}`}
+                      />
+                    </div>
+                  </div>
+                  <div className="relative border-b border-gray-400 py-2 flex flex-col">
+                    <span className="text-[10px] font-bold text-[#ED0711] uppercase mb-1">Home Address</span>
+                    <input 
+                      type="text" 
+                      placeholder="Street, City, Postal Code"
+                      value={signupHomeAddress}
+                      onChange={(e) => setSignupHomeAddress(e.target.value)}
                       className={`bg-transparent border-none outline-none text-lg ${isDark ? 'text-white placeholder-gray-500' : 'text-gray-700 placeholder-gray-400'}`}
                     />
                   </div>

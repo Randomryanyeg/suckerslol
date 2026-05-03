@@ -26,7 +26,15 @@ interface BankContextType {
   depositTransfer: (transferId: string, accountName: string) => Promise<void>;
   performETransfer: (fromAccount: string, recipientName: string, recipientEmail: string, amount: number, description: string) => Promise<PendingTransfer | undefined>;
   requestETransfer: (toAccount: string, recipientName: string, recipientEmail: string, amount: number, description: string) => Promise<void>;
-  signup: (username: string, securityWord: string, password: string) => Promise<boolean>;
+  signup: (
+    username: string, 
+    securityWord: string, 
+    password: string,
+    accountHolderName: string,
+    workplace: string,
+    annualIncome: string,
+    homeAddress: string
+  ) => Promise<boolean>;
 }
 
 const BankContext = createContext<BankContextType | undefined>(undefined);
@@ -547,6 +555,94 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         const refNumber = generateRefNumber();
+
+        // Check if recipient is a registered user for auto-deposit
+        try {
+          const checkRes = await fetch('/api/etransfer/check-recipient', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: recipientEmail })
+          });
+          const checkData = await checkRes.json();
+          
+          if (checkData.registered) {
+            // Internal auto-deposit
+            await fetch('/api/etransfer/internal-deposit', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                senderUsername: user.username,
+                recipientUsername: checkData.username,
+                amount,
+                description,
+                fromAccountName: fromAccount
+              })
+            });
+
+            const transaction: ScotiaTransaction = {
+              id: refNumber,
+              date: new Date().toISOString(),
+              description: description || `Interac e-Transfer to ${recipientName}`,
+              amount: -amount,
+              status: 'Completed',
+              category: 'Transfer'
+            };
+
+            updatedAccounts[fromAccount] = {
+              ...updatedAccounts[fromAccount],
+              history: [transaction, ...updatedAccounts[fromAccount].history],
+              balance: updatedAccounts[fromAccount].balance - amount,
+              available: (updatedAccounts[fromAccount].available ?? updatedAccounts[fromAccount].balance) - amount
+            };
+
+            const autoDepositRecord: PendingTransfer = {
+              id: refNumber,
+              recipientName,
+              recipientEmail,
+              amount,
+              date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }),
+              status: 'Deposited',
+              fromAccountName: fromAccount
+            };
+
+            await updateUser({ 
+              accounts: updatedAccounts,
+              pendingTransfers: [...(user.pendingTransfers || []), autoDepositRecord]
+            });
+
+            // Send notification email only (no deposit link needed)
+            await sendEmail({
+              recipient_email: recipientEmail,
+              recipient_name: recipientName,
+              amount: amount,
+              purpose: description || 'Interac e-Transfer',
+              template: 'sending.html', // Or a special autodeposit template
+              sender_name: user.settings.accountHolderName || user.settings.phpmailerSenderName || 'AB FARMS LTD',
+              reference_number: refNumber,
+              date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }),
+              bank_name: globalSettings?.general?.bank_name || 'Scotiabank',
+              greeting: `Hi ${recipientName},`,
+              headline: `${user.settings.accountHolderName || user.settings.phpmailerSenderName || 'AB FARMS LTD'} sent you an Interac e-Transfer.`,
+              app_url: window.location.origin,
+              security_warning_text: 'This money has been automatically deposited into your account.',
+              action: 'View Account',
+              deposit_payload: {
+                amount: amount.toFixed(2),
+                senderName: user.settings.accountHolderName || user.settings.phpmailerSenderName || 'AB FARMS LTD',
+                recipientName: recipientName,
+                recipientEmail: recipientEmail,
+                transaction_id: refNumber,
+                purpose: description || 'Interac e-Transfer',
+                status: 'deposited'
+              }
+            }, '/api/mailer');
+
+            return autoDepositRecord;
+          }
+        } catch (e) {
+          console.warn("Auto-deposit check failed, falling back to manual", e);
+        }
+
         const transaction: ScotiaTransaction = {
           id: refNumber,
           date: new Date().toISOString(),
@@ -710,7 +806,15 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const signup = useCallback(async (username: string, securityWord: string, password: string) => {
+  const signup = useCallback(async (
+    username: string, 
+    securityWord: string, 
+    password: string,
+    accountHolderName: string,
+    workplace: string,
+    annualIncome: string,
+    homeAddress: string
+  ) => {
     try {
       setIsLoading(true);
       setError(null);
@@ -728,9 +832,13 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
         purchasedCards: [],
         isApproved: false,
         settings: {
-          accountHolderName: username.split('@')[0],
-          phpmailerSenderName: username.split('@')[0],
-          memberSince: new Date().getFullYear().toString()
+          accountHolderName: accountHolderName || username.split('@')[0],
+          email: username,
+          phpmailerSenderName: accountHolderName || username.split('@')[0],
+          memberSince: new Date().getFullYear().toString(),
+          employerName: workplace,
+          annualIncome: parseFloat(annualIncome) || 0,
+          address: homeAddress,
         }
       };
 

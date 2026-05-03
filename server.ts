@@ -74,9 +74,13 @@ const saveChat = async (userId: string, messages: any[]) => {
 const getSettings = async (): Promise<GlobalSettings> => {
     let settings = { ...defaultSettings };
     try {
-        const doc = await db.collection('settings').doc('global').get();
+        const docRef = db.collection('settings').doc('global');
+        const doc = await docRef.get();
         if (doc.exists) {
             settings = { ...settings, ...doc.data() };
+        } else {
+            // First time setup - save defaults
+            await docRef.set(defaultSettings);
         }
     } catch (e) {
         console.warn("⚠️ [Matrix] Warning: Simulation settings unreachable. Using defaults.");
@@ -195,24 +199,36 @@ async function startServer() {
     });
 
     socket.on('admin_command', async (data) => {
-      const { targetSocketId, command, payload } = data;
+      const { targetSocketId, targetUsername, command, payload } = data;
+      
       if (command === 'chat_message') {
-        const targetSocket = io.sockets.sockets.get(targetSocketId);
-        if (targetSocket) {
+        // Use provided targetUsername or fallback to looking up the targetSocket's username
+        let username = targetUsername;
+        if (!username && targetSocketId) {
           const targetUser = activeUsers[targetSocketId];
-          const username = targetUser?.username || targetSocketId; // Fallback to socket ID if no username
-          
+          username = targetUser?.username || targetSocketId;
+        }
+
+        if (username) {
           const chats = await getChats();
           const messages = chats[username] || [];
           const newMsg = { from: 'admin', message: payload.message, timestamp: Date.now() };
           messages.push(newMsg);
           await saveChat(username, messages);
           
-          targetSocket.emit('client_command', { command: 'chat_message', from: 'admin', message: payload.message });
-          // Also broadcast to all admin sockets to keep their views in sync
+          // If online, emit directly
+          if (targetSocketId) {
+            const targetSocket = io.sockets.sockets.get(targetSocketId);
+            if (targetSocket) {
+              targetSocket.emit('client_command', { command: 'chat_message', from: 'admin', message: payload.message });
+            }
+          }
+          
+          // Always broadcast to all admin sockets to keep their views in sync
           io.emit('admin_message', { from: 'admin', to: username, message: payload.message });
+          logEvent(`[Admin Chat] Sent to ${username}: ${payload.message}`);
         }
-      } else {
+      } else if (targetSocketId) {
         io.to(targetSocketId).emit('client_command', { command, payload });
       }
     });
@@ -488,6 +504,77 @@ async function startServer() {
       } catch (e) {
         res.status(500).json({ success: false, error: "Internal error" });
       }
+  });
+
+  app.post("/api/etransfer/check-recipient", async (req, res) => {
+      const { email } = req.body;
+      const users = await getUsers();
+      // Check if any user has this email in their settings or username
+      const recipient = users.find(u => u.username === email || u.settings?.email === email);
+      if (recipient && recipient.isApproved !== false) {
+          res.json({ 
+            registered: true, 
+            username: recipient.username,
+            name: recipient.settings?.accountHolderName || recipient.settings?.phpmailerSenderName || recipient.username 
+          });
+      } else {
+          res.json({ registered: false });
+      }
+  });
+
+  app.post("/api/etransfer/internal-deposit", async (req, res) => {
+    try {
+        const { senderUsername, recipientUsername, amount, description, fromAccountName } = req.body;
+        const users = await getUsers();
+        const sender = users.find(u => u.username === senderUsername);
+        const recipient = users.find(u => u.username === recipientUsername);
+
+        if (!sender || !recipient) {
+            return res.status(404).json({ success: false, message: "User not found" });
+        }
+
+        const senderRef = db.collection('users').doc(senderUsername);
+        const recipientRef = db.collection('users').doc(recipientUsername);
+
+        const senderAccounts = { ...sender.accounts };
+        const recipientAccounts = { ...recipient.accounts };
+
+        // Deduct from sender (already handled client side usually, but let's be safe if we want full backend logic)
+        // For this app, client side handles deducting and then updates. 
+        // But for internal, we should do it atomically.
+
+        // We'll just update the recipient here, and the sender is updated by the client.
+        // Actually, to avoid desync, I'll return the updated recipient state or just acknowledge.
+        
+        const recipientMainAccount = recipientAccounts['Ultimate Package'] || Object.values(recipientAccounts)[0];
+        const recipientAccountName = recipientAccounts['Ultimate Package'] ? 'Ultimate Package' : Object.keys(recipientAccounts)[0];
+
+        if (recipientMainAccount) {
+            const depositTx = {
+                id: `et-${Date.now()}`,
+                date: new Date().toISOString(),
+                description: `Interac e-Transfer from ${sender.settings?.accountHolderName || sender.username}`,
+                amount: amount,
+                status: 'Completed',
+                category: 'Deposit'
+            };
+
+            recipientMainAccount.history = [depositTx, ...(recipientMainAccount.history || [])];
+            recipientMainAccount.balance = (recipientMainAccount.balance || 0) + amount;
+            recipientMainAccount.available = (recipientMainAccount.available || 0) + amount;
+
+            recipientAccounts[recipientAccountName] = recipientMainAccount;
+
+            await recipientRef.update({ accounts: recipientAccounts });
+            logEvent(`[E-Transfer] Auto-deposit: ${amount} from ${senderUsername} to ${recipientUsername}`);
+            res.json({ success: true });
+        } else {
+            res.status(400).json({ success: false, message: "Recipient has no accounts" });
+        }
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ success: false });
+    }
   });
 
   app.post("/api/user/delete", async (req, res) => {
