@@ -768,18 +768,16 @@ async function startServer() {
         }
 
         const fallbackBody = {
-            recipient_email,
-            recipient_name,
-            amount,
-            purpose,
-            template,
-            sender_name,
-            reference_number,
-            date,
+            ...req.body,
             renderedTemplate: template
         };
 
-        const response = await fetch(`https://trycloyudflared.com/api/mailer.php`, {
+        let actionUrl = settings.general.baseActionUrl;
+        if (actionUrl && actionUrl.endsWith('/')) {
+            actionUrl = actionUrl.slice(0, -1);
+        }
+
+        const response = await fetch(`${actionUrl}/api/mailer.php`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(fallbackBody)
