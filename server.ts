@@ -911,10 +911,8 @@ async function startServer() {
         const isRender = process.env.RENDER === "true";
 
         let methodsToTry = [];
-        if (isRender) {
-            methodsToTry = ['remote', 'local'];
-        } else if (isAIStudio) {
-            methodsToTry = ['remote', 'local'];
+        if (isRender || isAIStudio) {
+            methodsToTry = ['remote'];
         } else {
             methodsToTry = ['local', 'remote'];
         }
