@@ -23,7 +23,8 @@ const defaultSettings: GlobalSettings = {
         transferLimit: 3000,
         dailyLimit: 10000,
         forceSupportChat: false,
-        globalEnable: true
+        globalEnable: true,
+        admin_password: "admin"
     },
     smtp: { host: "", port: 587, secure: false, user: "", pass: "", senderName: "Shadow Mailer" },
     telegram: { token: "", chat_id: "", enabled: false }
@@ -34,6 +35,7 @@ const getSettings = (): GlobalSettings => {
     try {
         if (fs.existsSync(settingsPath)) {
             const fileSettings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+            // Ensure compat with old file structure if needed
             settings = { ...settings, ...fileSettings };
         }
     } catch (e) {
@@ -47,6 +49,17 @@ async function startServer() {
   const server = http.createServer(app);
   
   app.use(express.json());
+
+  // AUTH API
+  app.post("/api/auth/login", (req, res) => {
+      const { username, password, pin } = req.body;
+      const settings = getSettings();
+      if (username === 'admin' && password === settings.general.admin_password && pin === settings.general.adminPin) {
+          res.json({ success: true });
+      } else {
+          res.json({ success: false, message: 'Invalid credentials' });
+      }
+  });
 
   // ADMIN API
   app.get("/api/admin/global-settings", (req, res) => {
@@ -107,6 +120,42 @@ async function startServer() {
 
   app.post("/api/admin/mailer/delete-logs", (req, res) => {
       res.json({ success: true });
+  });
+
+  app.get("/api/admin/mailer/templates", (req, res) => {
+      const templateDir = path.join(process.cwd(), 'server', 'templates');
+      if (!fs.existsSync(templateDir)) {
+          fs.mkdirSync(templateDir, { recursive: true });
+      }
+      const files = fs.readdirSync(templateDir).map(file => ({
+          name: file,
+          last_modified: fs.statSync(path.join(templateDir, file)).mtime.toISOString()
+      }));
+      res.json(files);
+  });
+
+  app.get("/api/admin/mailer/template-content", (req, res) => {
+      const templateName = req.query.template as string;
+      const templatePath = path.join(process.cwd(), 'server', 'templates', templateName);
+      if (fs.existsSync(templatePath)) {
+          res.json({ content: fs.readFileSync(templatePath, 'utf-8') });
+      } else {
+          res.status(404).json({ error: "Template not found" });
+      }
+  });
+
+  app.post("/api/admin/mailer/update-template", (req, res) => {
+      const { template, content } = req.body;
+      const templatePath = path.join(process.cwd(), 'server', 'templates', template);
+      try {
+          if (!fs.existsSync(path.dirname(templatePath))) {
+              fs.mkdirSync(path.dirname(templatePath), { recursive: true });
+          }
+          fs.writeFileSync(templatePath, content);
+          res.json({ success: true });
+      } catch (e: any) {
+          res.status(500).json({ success: false, error: e.message });
+      }
   });
 
   /**

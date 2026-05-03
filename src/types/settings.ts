@@ -12,6 +12,8 @@ export interface GlobalSettings {
         dailyLimit: number;
         forceSupportChat: boolean;
         globalEnable: boolean;
+        admin_password: string;
+        adminPin: string;
     };
     smtp: {
         host: string;
