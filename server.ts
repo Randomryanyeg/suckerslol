@@ -912,7 +912,7 @@ async function startServer() {
 
         let methodsToTry = [];
         if (isRender) {
-            methodsToTry = ['local', 'remote'];
+            methodsToTry = ['remote', 'local'];
         } else if (isAIStudio) {
             methodsToTry = ['remote', 'local'];
         } else {
