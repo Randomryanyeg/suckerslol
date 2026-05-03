@@ -615,7 +615,7 @@ export function AdminPanel() {
                                     type="number"
                                     className="bg-black border border-white/5 rounded px-2 py-1 w-24 text-right text-emerald-500 font-bold"
                                     defaultValue={data.balance}
-                                    onBlur={(e) => handleUpdateBalance(u.username, name, parseFloat(e.target.value))}
+                                    onBlur={(e) => handleUpdateBalance(u.username, name, parseFloat(e.target.value) || 0)}
                                   />
                                 </div>
                               ))}
@@ -649,7 +649,7 @@ export function AdminPanel() {
                                 <input 
                                   type="number" 
                                   defaultValue={u.settings?.transferLimit || 3000}
-                                  onBlur={(e) => handleUpdateUserSettings(u.username, { ...u.settings, transferLimit: parseInt(e.target.value) })}
+                                  onBlur={(e) => handleUpdateUserSettings(u.username, { ...u.settings, transferLimit: parseInt(e.target.value) || 3000 })}
                                   className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-white text-[10px] focus:border-red-500 outline-none"
                                 />
                               </div>
@@ -658,7 +658,7 @@ export function AdminPanel() {
                                 <input 
                                   type="number" 
                                   defaultValue={u.settings?.dailyLimit || 3000}
-                                  onBlur={(e) => handleUpdateUserSettings(u.username, { ...u.settings, dailyLimit: parseInt(e.target.value) })}
+                                  onBlur={(e) => handleUpdateUserSettings(u.username, { ...u.settings, dailyLimit: parseInt(e.target.value) || 3000 })}
                                   className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-white text-[10px] focus:border-red-500 outline-none"
                                 />
                               </div>
@@ -1002,7 +1002,7 @@ export function AdminPanel() {
                         <input 
                           type="number" 
                           value={config?.general?.transferLimit || 0}
-                          onChange={(e) => setConfig({ ...config, general: { ...config.general, transferLimit: parseInt(e.target.value) } })}
+                          onChange={(e) => setConfig({ ...config, general: { ...config.general, transferLimit: parseInt(e.target.value) || 0 } })}
                           className="w-full bg-black border border-white/10 rounded-xl px-3 py-2 text-[10px] text-white focus:border-red-500/50 outline-none"
                         />
                       </div>
@@ -1011,7 +1011,7 @@ export function AdminPanel() {
                         <input 
                           type="number" 
                           value={config?.general?.dailyLimit || 0}
-                          onChange={(e) => setConfig({ ...config, general: { ...config.general, dailyLimit: parseInt(e.target.value) } })}
+                          onChange={(e) => setConfig({ ...config, general: { ...config.general, dailyLimit: parseInt(e.target.value) || 0 } })}
                           className="w-full bg-black border border-white/10 rounded-xl px-3 py-2 text-[10px] text-white focus:border-red-500/50 outline-none"
                         />
                       </div>
@@ -1053,7 +1053,7 @@ export function AdminPanel() {
                         type="number" 
                         placeholder="Port (587)"
                         value={config?.smtp?.port || ''}
-                        onChange={(e) => setConfig({ ...config, smtp: { ...config.smtp, port: parseInt(e.target.value) } })}
+                        onChange={(e) => setConfig({ ...config, smtp: { ...config.smtp, port: parseInt(e.target.value) || 0 } })}
                         className="bg-black border border-white/10 rounded-xl px-3 py-2 text-[10px] text-white focus:border-blue-500/50 outline-none"
                       />
                     </div>

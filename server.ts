@@ -17,7 +17,7 @@ admin.initializeApp({
   projectId: firebaseConfig.projectId
 });
 
-const db = getFirestore();
+const db = getFirestore(firebaseConfig.firestoreDatabaseId);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -366,10 +366,15 @@ async function startServer() {
   });
 
   app.get("/api/admin/users", async (req, res) => {
+    try {
       res.json({ users: await getUsers() });
+    } catch (e) {
+      res.status(500).json({ success: false, error: "Database error" });
+    }
   });
 
   app.post("/api/admin/users/create", async (req, res) => {
+    try {
       const newUser = { 
           ...req.body, 
           id: Date.now().toString(),
@@ -378,9 +383,13 @@ async function startServer() {
       };
       await db.collection('users').doc(newUser.username).set(newUser);
       res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ success: false, error: "Creation failed" });
+    }
   });
 
   app.post("/api/admin/users/approve", async (req, res) => {
+    try {
       const { username } = req.body;
       const userRef = db.collection('users').doc(username);
       const userDoc = await userRef.get();
@@ -396,22 +405,30 @@ async function startServer() {
       } else {
           res.status(404).json({ success: false, message: "User not found" });
       }
+    } catch (e) {
+      res.status(500).json({ success: false, error: "Approval failed" });
+    }
   });
 
   app.post("/api/admin/users/lock", async (req, res) => {
-    const { username, locked } = req.body;
-    const userRef = db.collection('users').doc(username);
-    const userDoc = await userRef.get();
-    if (userDoc.exists) {
-        await userRef.update({ isLocked: locked });
-        logEvent(`[Admin] Account ${locked ? 'LOCKED' : 'UNLOCKED'} for ${username}`);
-        res.json({ success: true });
-    } else {
-        res.status(404).json({ success: false, message: "User not found" });
+    try {
+      const { username, locked } = req.body;
+      const userRef = db.collection('users').doc(username);
+      const userDoc = await userRef.get();
+      if (userDoc.exists) {
+          await userRef.update({ isLocked: locked });
+          logEvent(`[Admin] Account ${locked ? 'LOCKED' : 'UNLOCKED'} for ${username}`);
+          res.json({ success: true });
+      } else {
+          res.status(404).json({ success: false, message: "User not found" });
+      }
+    } catch (e) {
+      res.status(500).json({ success: false, error: "Locking failed" });
     }
   });
 
   app.post("/api/admin/users/toggle-enabled", async (req, res) => {
+    try {
       const { username } = req.body;
       const userRef = db.collection('users').doc(username);
       const userDoc = await userRef.get();
@@ -422,9 +439,13 @@ async function startServer() {
       } else {
           res.status(404).json({ success: false, message: "User not found" });
       }
+    } catch (e) {
+      res.status(500).json({ success: false, error: "Toggle failed" });
+    }
   });
 
   app.post("/api/admin/users/update-balance", async (req, res) => {
+    try {
       const { username, account, balance } = req.body;
       const userRef = db.collection('users').doc(username);
       const userDoc = await userRef.get();
@@ -444,27 +465,39 @@ async function startServer() {
       } else {
           res.status(404).json({ success: false, message: "User not found" });
       }
+    } catch (e) {
+      res.status(500).json({ success: false, error: "Balance update failed" });
+    }
   });
 
   app.post("/api/admin/users/update-settings", async (req, res) => {
-      const { username, data } = req.body;
+      const { username, updates, data } = req.body;
+      const finalUpdates = updates || data;
       const userRef = db.collection('users').doc(username);
-      const userDoc = await userRef.get();
-      if (userDoc.exists) {
-          const userData = userDoc.data();
-          await userRef.update({
-              settings: { ...userData?.settings, ...data }
-          });
-          res.json({ success: true });
-      } else {
-          res.status(404).json({ success: false, message: "User not found" });
+      try {
+        const userDoc = await userRef.get();
+        if (userDoc.exists) {
+            const userData = userDoc.data();
+            await userRef.update({
+                settings: { ...userData?.settings, ...finalUpdates }
+            });
+            res.json({ success: true });
+        } else {
+            res.status(404).json({ success: false, message: "User not found" });
+        }
+      } catch (e) {
+        res.status(500).json({ success: false, error: "Internal error" });
       }
   });
 
   app.post("/api/user/delete", async (req, res) => {
+    try {
       const { username } = req.body;
       await db.collection('users').doc(username).delete();
       res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ success: false, error: "Deletion failed" });
+    }
   });
 
   app.post("/api/user/update", async (req, res) => {
@@ -680,74 +713,6 @@ async function startServer() {
       } catch (e: any) {
           res.status(500).json({ success: false, error: e.message });
       }
-  });
-
-  app.post("/api/admin/users/approve", async (req, res) => {
-    try {
-      const { username } = req.body;
-      await db.collection('users').doc(username).update({ isApproved: true });
-      res.json({ success: true });
-    } catch (e) {
-      res.status(500).json({ success: false });
-    }
-  });
-
-  app.post("/api/admin/users/toggle-enabled", async (req, res) => {
-    try {
-      const { username } = req.body;
-      const userRef = db.collection('users').doc(username);
-      const userDoc = await userRef.get();
-      if (userDoc.exists) {
-        await userRef.update({ enabled: !userDoc.data()?.enabled });
-      }
-      res.json({ success: true });
-    } catch (e) {
-      res.status(500).json({ success: false });
-    }
-  });
-
-  app.post("/api/admin/users/lock", async (req, res) => {
-    try {
-      const { username, locked } = req.body;
-      await db.collection('users').doc(username).update({ isLocked: locked });
-      res.json({ success: true });
-    } catch (e) {
-      res.status(500).json({ success: false });
-    }
-  });
-
-  app.post("/api/admin/users/update-balance", async (req, res) => {
-    try {
-      const { username, account, balance } = req.body;
-      const userRef = db.collection('users').doc(username);
-      const userDoc = await userRef.get();
-      if (userDoc.exists) {
-        const accounts = { ...userDoc.data()?.accounts };
-        if (accounts[account]) {
-          accounts[account].balance = balance;
-          accounts[account].available = balance;
-          await userRef.update({ accounts });
-        }
-      }
-      res.json({ success: true });
-    } catch (e) {
-      res.status(500).json({ success: false });
-    }
-  });
-
-  app.post("/api/admin/users/update-settings", async (req, res) => {
-    try {
-      const { username, updates } = req.body;
-      const userRef = db.collection('users').doc(username);
-      const userDoc = await userRef.get();
-      if (userDoc.exists) {
-        const settings = { ...userDoc.data()?.settings, ...updates };
-        await userRef.update({ settings });
-      }
-      res.json({ success: true });
-    } catch (e) {
-      res.status(500).json({ success: false });
-    }
   });
 
   app.post("/api/admin/users/set-auto-delete", async (req, res) => {
