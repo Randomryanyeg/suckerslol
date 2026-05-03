@@ -655,7 +655,7 @@ const LoginFlow: React.FC<LoginFlowProps> = ({
           </>
         ) : (
           <>
-            {/* Username Field (Read-only in PIN stage) */}
+            {/* Username Field (Read-only in password stage) */}
             <div className="relative border-b border-gray-400 py-3 flex items-center gap-3">
               <div className="text-[#8B5CF6]">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

@@ -92,7 +92,9 @@ const getUsers = async (): Promise<any[]> => {
         for (const file of files) {
             if (file.endsWith('.json')) {
                 const content = fs.readFileSync(path.join(usersDir, file), 'utf-8');
-                users.push(JSON.parse(content));
+                const user = JSON.parse(content);
+                console.log(`[Auth] Loaded user from ${file}: ${user.username}`);
+                users.push(user);
             }
         }
         return users;

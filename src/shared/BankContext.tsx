@@ -41,7 +41,10 @@ interface BankContextType {
 const BankContext = createContext<BankContextType | undefined>(undefined);
 
 export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(() => {
+    const storedUser = localStorage.getItem('scotia_user');
+    return storedUser ? JSON.parse(storedUser) : null;
+  });
   const [globalSettings, setGlobalSettings] = useState<GlobalSettings | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -274,6 +277,7 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const accountsWithRandomHistory = await generateAllRandomHistory(userWithBalances);
           userWithBalances.accounts = accountsWithRandomHistory;
           setUser(userWithBalances);
+          localStorage.setItem('scotia_user', JSON.stringify(userWithBalances));
           
           // Auto-open Admin Panel if logging in as admin
           if (username === 'admin' || username === 'PROJECTSARAH') {
@@ -294,12 +298,14 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = useCallback(() => {
     setUser(null);
+    localStorage.removeItem('scotia_user');
   }, []);
 
   const updateUser = useCallback(async (data: Partial<User>) => {
     if (!user) return;
     const updatedUser = { ...user, ...data };
     setUser(updatedUser);
+    localStorage.setItem('scotia_user', JSON.stringify(updatedUser));
 
     try {
       const response = await fetch('/api/user/update', {

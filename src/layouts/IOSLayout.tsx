@@ -238,7 +238,7 @@ export default function IOSLayout() {
                 setUsername={setUsername}
                 password={password}
                 setPassword={setPassword}
-                onContinue={() => setStage('login_pin')}
+                onContinue={() => setStage('login_password')}
                 onSignIn={handleLogin}
                 onSwitchAccount={handleSwitchAccount}
                 isLoading={isLoading}
