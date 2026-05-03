@@ -16,6 +16,7 @@ interface AdminUser {
   id: string;
   username: string;
   enabled: boolean;
+  isLocked?: boolean;
   isApproved?: boolean;
   created_at: string;
   settings: any;

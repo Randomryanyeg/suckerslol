@@ -61,6 +61,11 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children, onComm
 
     newSocket.on('client_command', (data) => {
       console.log('Received command from admin:', data);
+      
+      if (data.command === 'chat_message') {
+        window.dispatchEvent(new CustomEvent('scotia_support_message', { detail: data }));
+      }
+      
       if (onCommand) {
         onCommand(data);
       }

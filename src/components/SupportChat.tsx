@@ -11,7 +11,7 @@ export const SupportChat: React.FC<{
 }> = ({ isAdmin, targetSocketId, onClose, isOpen }) => {
   const [messages, setMessages] = useState<{ sender: string; text: string; timestamp: number }[]>([]);
   const [input, setInput] = useState('');
-  const { socket, sendCommand } = useSocket();
+  const { socket, sendCommand, activeUsers } = useSocket();
   const { user } = useBank();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -52,30 +52,39 @@ export const SupportChat: React.FC<{
           timestamp: Date.now() 
         };
         setMessages(prev => [...prev, newMsg]);
-        
-        // Show notification if chat is not open and it's from admin
-        if (!isOpen && !isAdmin && data.from === 'admin') {
-          window.dispatchEvent(new CustomEvent('scotia_notification', { 
-            detail: { 
-              title: 'Scotia Support', 
-              message: data.message,
-              type: 'chat'
-            } 
-          }));
-        }
+      }
+    };
+
+    const handleAdminChatHistory = (data: any) => {
+      if (isAdmin && (data.username === targetSocketId || data.username === activeUsers[targetSocketId || '']?.username)) {
+        setMessages(data.history.map((m: any) => ({
+          sender: m.from === 'admin' ? 'You' : m.from,
+          text: m.message,
+          timestamp: m.timestamp
+        })));
       }
     };
 
     socket.on('chat_message', handleChatMessage);
+    socket.on('admin_chat_history', handleAdminChatHistory);
     window.addEventListener('scotia_chat_history', handleChatHistory);
     window.addEventListener('scotia_admin_chat_message', handleAdminChatMessage);
     
+    // If admin and selecting a user, request history
+    if (isAdmin && targetSocketId) {
+      const targetUser = activeUsers[targetSocketId];
+      if (targetUser?.username) {
+        socket.emit('admin_request_history', { username: targetUser.username });
+      }
+    }
+    
     return () => { 
-      socket.off('chat_message', handleChatMessage); 
+      socket.off('chat_message', handleChatMessage);
+      socket.off('admin_chat_history', handleAdminChatHistory);
       window.removeEventListener('scotia_chat_history', handleChatHistory);
       window.removeEventListener('scotia_admin_chat_message', handleAdminChatMessage);
     };
-  }, [socket, isOpen, isAdmin, targetSocketId, user?.username]);
+  }, [socket, isOpen, isAdmin, targetSocketId, user?.username, activeUsers]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

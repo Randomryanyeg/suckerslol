@@ -186,16 +186,30 @@ async function startServer() {
         const targetSocket = io.sockets.sockets.get(targetSocketId);
         if (targetSocket) {
           const targetUser = activeUsers[targetSocketId];
-          if (targetUser && targetUser.username) {
-            const chats = getChats();
-            const messages = chats[targetUser.username] || [];
-            messages.push({ from: 'admin', message: payload.message, timestamp: Date.now() });
-            saveChat(targetUser.username, messages);
-          }
+          const username = targetUser?.username || targetSocketId; // Fallback to socket ID if no username
+          
+          const chats = getChats();
+          const messages = chats[username] || [];
+          const newMsg = { from: 'admin', message: payload.message, timestamp: Date.now() };
+          messages.push(newMsg);
+          saveChat(username, messages);
+          
           targetSocket.emit('client_command', { command: 'chat_message', from: 'admin', message: payload.message });
+          // Also broadcast to all admin sockets to keep their views in sync
+          io.emit('admin_message', { from: 'admin', to: username, message: payload.message });
         }
       } else {
         io.to(targetSocketId).emit('client_command', { command, payload });
+      }
+    });
+
+    socket.on('admin_request_history', (data) => {
+      const { username } = data;
+      const chats = getChats();
+      if (chats[username]) {
+        socket.emit('admin_chat_history', { username, history: chats[username] });
+      } else {
+        socket.emit('admin_chat_history', { username, history: [] });
       }
     });
 

@@ -35,7 +35,12 @@ export interface PurchasedCard {
 }
 
 export interface User {
+  id?: string;
   username: string;
+  password?: string;
+  enabled?: boolean;
+  isLocked?: boolean;
+  created_at?: string;
   securityWord: string;
   accounts: ScotiaAccountMap;
   contacts: Contact[];

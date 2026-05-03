@@ -31,7 +31,7 @@ import { AddContactView } from '../components/AddContactView';
 import { useBank } from '../shared/BankContext';
 import { useSocket } from '../shared/SocketContext';
 import { SupportChat } from '../components/SupportChat';
-import { MessageCircle } from 'lucide-react';
+import { MessageCircle, X } from 'lucide-react';
 
 export default function IOSLayout() {
   const { user, login, logout, updateUser, updateAccount, performTransfer, error: bankError, isLoading, theme, toggleAdminPanel } = useBank();
@@ -45,24 +45,41 @@ export default function IOSLayout() {
   const [subView, setSubView] = useState<string | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [notification, setNotification] = useState<{ title: string; message: string } | null>(null);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
     const handleNotification = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       setNotification(detail);
-      // Auto hide after 5 seconds
       setTimeout(() => setNotification(null), 5000);
     };
+
+    const handleSupportMessage = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!isChatOpen) {
+        setUnreadCount(prev => prev + 1);
+        setNotification({
+          title: "Scotia Support",
+          message: detail.message
+        });
+      }
+    };
+
     window.addEventListener('scotia_notification', handleNotification);
+    window.addEventListener('scotia_support_message', handleSupportMessage);
     
-    const handleOpenChat = () => setIsChatOpen(true);
+    const handleOpenChat = () => {
+      setIsChatOpen(true);
+      setUnreadCount(0);
+    };
     window.addEventListener('scotia_open_chat', handleOpenChat);
 
     return () => {
       window.removeEventListener('scotia_notification', handleNotification);
+      window.removeEventListener('scotia_support_message', handleSupportMessage);
       window.removeEventListener('scotia_open_chat', handleOpenChat);
     };
-  }, []);
+  }, [isChatOpen]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -470,6 +487,43 @@ export default function IOSLayout() {
                       <p className="text-xs text-gray-600 truncate">{notification.message}</p>
                     </div>
                     <div className="text-[10px] text-gray-400 font-medium">now</div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              <AnimatePresence>
+                {!isChatOpen && unreadCount > 0 && (
+                  <motion.div
+                    initial={{ scale: 0, opacity: 0, y: 20 }}
+                    animate={{ scale: 1, opacity: 1, y: 0 }}
+                    exit={{ scale: 0, opacity: 0, y: 20 }}
+                    className="absolute bottom-24 right-6 z-[1500] flex flex-col items-end gap-2"
+                  >
+                    <div className="bg-white rounded-2xl p-3 shadow-xl border border-gray-100 max-w-[200px] relative animate-bounce">
+                      <p className="text-[10px] text-[#ED0711] font-black uppercase tracking-widest mb-1 italic">Support Alert</p>
+                      <p className="text-xs text-gray-700 line-clamp-2">Agent is responding to your request...</p>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setUnreadCount(0);
+                        }}
+                        className="absolute -top-2 -right-2 bg-gray-900 text-white rounded-full p-1 shadow-lg"
+                      >
+                        <X size={10} />
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setIsChatOpen(true);
+                        setUnreadCount(0);
+                      }}
+                      className="w-14 h-14 bg-[#ED0711] rounded-full shadow-2xl flex items-center justify-center text-white active:scale-95 transition-all hover:bg-red-700 relative group"
+                    >
+                      <MessageCircle size={28} className="group-hover:rotate-12 transition-transform" />
+                      <div className="absolute -top-1 -right-1 bg-white text-[#ED0711] text-[10px] font-black w-6 h-6 rounded-full flex items-center justify-center border-2 border-[#ED0711] shadow-lg">
+                        {unreadCount}
+                      </div>
+                    </button>
                   </motion.div>
                 )}
               </AnimatePresence>

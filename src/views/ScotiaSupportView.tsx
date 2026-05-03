@@ -113,6 +113,17 @@ If the user asks for sensitive actions, explain that you are an AI assistant and
               Request Support Call
             </button>
 
+            <button 
+              onClick={() => {
+                onBack();
+                setTimeout(() => window.dispatchEvent(new CustomEvent('scotia_open_chat')), 100);
+              }}
+              className="w-full py-4 bg-gray-100 text-gray-900 font-bold rounded-2xl active:scale-95 transition-transform flex items-center justify-center gap-3"
+            >
+              <MessageSquare size={24} />
+              Live Messenger Support
+            </button>
+
             <div className="p-4 rounded-xl bg-white/5 border border-white/10 flex gap-3 items-start">
               <Info size={20} className="text-blue-400 shrink-0 mt-0.5" />
               <p className="text-xs text-gray-400 leading-relaxed">
