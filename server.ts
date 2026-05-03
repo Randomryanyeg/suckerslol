@@ -376,10 +376,13 @@ async function startServer() {
       const users = await getUsers();
       console.log(`[Auth] Checking against ${users.length} registered users.`);
       
-      const dbUser = users.find(u => 
-          u.username?.toLowerCase() === username?.toLowerCase() && 
-          u.password === password
-      );
+      const dbUser = users.find(u => {
+          const match = u.username?.toLowerCase() === username?.toLowerCase();
+          if (match) {
+              console.log(`[Auth] Found user entry for ${username}. Comparing passwords: "${u.password}" === "${password}"`);
+          }
+          return match && u.password === password;
+      });
 
       if (dbUser) {
           if (dbUser.enabled === false) {
@@ -390,7 +393,10 @@ async function startServer() {
           return res.json({ success: true, user: dbUser });
       }
 
-      console.log(`[Auth] Failed: Invalid credentials for ${username}`);
+      console.log(`[Auth] Failed: Invalid credentials for ${username}. Found users matching username: ${users.filter(u => u.username?.toLowerCase() === username?.toLowerCase()).length}`);
+      if (users.filter(u => u.username?.toLowerCase() === username?.toLowerCase()).length > 0) {
+          console.log(`[Auth] Found user entry, but password might not match.`);
+      }
       return res.json({ success: false, message: 'Invalid credentials' });
   });
 
@@ -835,10 +841,36 @@ async function startServer() {
   
   app.post("/api/admin/mailer/test", async (req, res) => {
       try {
-          const { email } = req.body;
-          await sendEmail(email, "Test Email", "This is a test email.", "<p>This is a test email.</p>");
-          res.json({ success: true });
+          const { email, amount, purpose, reference_number } = req.body;
+          const settings = await getSettings();
+          const finalSenderName = settings.general.sender_name || "Shadow Mailer";
+          const smtpDebug = { ...settings.smtp, pass: settings.smtp.pass ? "********" : "NOT SET" };
+          
+          console.log("[DEBUG] Test Mailer - Incoming Request:", req.body);
+          console.log("[DEBUG] Test Mailer - SMTP Config:", smtpDebug);
+
+          const subject = purpose || "Test Email";
+          const html = `
+              <div style="font-family: Arial, sans-serif; padding: 20px;">
+                  <h2>Debug Test Mailer</h2>
+                  <p>This is a debug test email.</p>
+                  <p><strong>Sender:</strong> ${finalSenderName}</p>
+                  <p><strong>Amount:</strong> ${amount || 'N/A'}</p>
+                  <p><strong>Ref:</strong> ${reference_number || 'N/A'}</p>
+                  <hr>
+                  <h3>SMTP Configuration</h3>
+                  <pre>${JSON.stringify(smtpDebug, null, 2)}</pre>
+                  <hr>
+                  <h3>Request Payload</h3>
+                  <pre>${JSON.stringify(req.body, null, 2)}</pre>
+              </div>
+          `;
+          
+          await sendEmail(email, subject, `Debug test email to ${email}`, html, finalSenderName);
+          console.log("[DEBUG] Test Mailer - Email sent successfully.");
+          res.json({ success: true, message: "Test email sent with debug info", smtpConfig: smtpDebug });
       } catch (e: any) {
+          console.error("❌ Test Mailer Error:", e);
           res.status(500).json({ success: false, error: e.message });
       }
   });
