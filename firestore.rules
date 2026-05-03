@@ -1,0 +1,72 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helper Functions ---
+    function isSignedIn() { return request.auth != null; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    
+    // Auth tokens never contain custom claims in this environment unless explicitly added.
+    // We lookup admin status from a trusted collection if we were to use it client-side.
+    function isAdmin() { return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)); }
+
+    // --- Validation Blueprints ---
+    function isValidUser(data) {
+      return data.keys().hasAll(['username', 'password']) &&
+             data.username is string && data.username.size() >= 1 && data.username.size() <= 100 &&
+             data.password is string && data.password.size() >= 4 && data.password.size() <= 100 &&
+             (data.keys().hasAll(['isApproved']) ? data.isApproved is bool : true) &&
+             (data.keys().hasAll(['isLocked']) ? data.isLocked is bool : true);
+    }
+
+    function isValidChatMessage(data) {
+      return data.keys().hasAll(['from', 'message', 'timestamp']) &&
+             data.from is string && data.from.size() <= 100 &&
+             data.message is string && data.message.size() <= 5000 &&
+             data.timestamp is number;
+    }
+
+    // --- Rules ---
+
+    // 1. Users Collection
+    match /users/{username} {
+      allow get: if isSignedIn() && request.auth.token.email == username;
+      allow list: if false; // List is dangerous for user data
+      
+      allow create: if isValidUser(incoming()) && (
+        // Identity Integrity: Ensure users don't set their own approved/locked status unless they are admin
+        incoming().get('isApproved', false) == false &&
+        incoming().get('isLocked', false) == false
+      );
+      
+      allow update: if isSignedIn() && request.auth.token.email == username && (
+        // Action: Update Profile (restricted fields)
+        incoming().diff(existing()).affectedKeys().hasOnly(['settings', 'contacts', 'purchasedCards', 'scenePoints'])
+      );
+      
+      allow delete: if false; // Only admin via server
+    }
+
+    // 2. Settings Collection
+    match /settings/global {
+      allow read: if true; 
+      allow write: if false; // Only server-side
+    }
+
+    // 3. Chats Collection
+    match /chats/{userId} {
+      allow read: if isSignedIn() && request.auth.token.email == userId;
+      
+      match /messages/{messageId} {
+        allow read: if isSignedIn() && request.auth.token.email == userId;
+        allow create: if isSignedIn() && request.auth.token.email == userId && isValidChatMessage(incoming());
+      }
+    }
+  }
+}

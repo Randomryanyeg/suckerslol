@@ -8,9 +8,17 @@ import { Server as SocketServer } from 'socket.io';
 import nodemailer from 'nodemailer';
 import { GlobalSettings } from './src/types/settings';
 
+import admin from "firebase-admin";
+import firebaseConfig from './firebase-applet-config.json';
+
+// Initialize Firebase Admin
+admin.initializeApp({
+  projectId: firebaseConfig.projectId
+});
+
+const db = admin.firestore(firebaseConfig.firestoreDatabaseId);
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const settingsPath = path.join(process.cwd(), 'server', 'data', 'global_settings.json');
-const chatPath = path.join(process.cwd(), 'server', 'data', 'chats.json');
 
 const defaultSettings: GlobalSettings = {
     general: { 
@@ -35,37 +43,39 @@ const defaultSettings: GlobalSettings = {
     telegram: { token: "", chat_id: "", enabled: false }
 };
 
-const getChats = () => {
+const getChats = async () => {
     try {
-        if (fs.existsSync(chatPath)) {
-            return JSON.parse(fs.readFileSync(chatPath, 'utf-8'));
+        const snapshot = await db.collection('chats').get();
+        const chatData: Record<string, any> = {};
+        for (const doc of snapshot.docs) {
+            const messagesSnap = await doc.ref.collection('messages').orderBy('timestamp', 'asc').get();
+            chatData[doc.id] = messagesSnap.docs.map(m => m.data());
         }
+        return chatData;
     } catch (e) {
-        console.warn("⚠️ [Matrix] Warning: Chat database unreachable.");
+        console.warn("⚠️ [Matrix] Warning: Chat database unreachable.", e);
     }
     return {};
 };
 
-const saveChat = (userId: string, messages: any[]) => {
+const saveChat = async (userId: string, messages: any[]) => {
     try {
-        const chats = getChats();
-        chats[userId] = messages;
-        if (!fs.existsSync(path.dirname(chatPath))) {
-            fs.mkdirSync(path.dirname(chatPath), { recursive: true });
+        // Just save the latest message to the subcollection for efficiency
+        const lastMsg = messages[messages.length - 1];
+        if (lastMsg) {
+            await db.collection('chats').doc(userId).collection('messages').add(lastMsg);
         }
-        fs.writeFileSync(chatPath, JSON.stringify(chats, null, 2));
     } catch (e) {
         console.error("❌ Failed to save chats:", e);
     }
 };
 
-const getSettings = (): GlobalSettings => {
+const getSettings = async (): Promise<GlobalSettings> => {
     let settings = { ...defaultSettings };
     try {
-        if (fs.existsSync(settingsPath)) {
-            const fileSettings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-            // Ensure compat with old file structure if needed
-            settings = { ...settings, ...fileSettings };
+        const doc = await db.collection('settings').doc('global').get();
+        if (doc.exists) {
+            settings = { ...settings, ...doc.data() };
         }
     } catch (e) {
         console.warn("⚠️ [Matrix] Warning: Simulation settings unreachable. Using defaults.");
@@ -73,25 +83,28 @@ const getSettings = (): GlobalSettings => {
     return settings;
 };
 
-const usersPath = path.join(process.cwd(), 'server', 'data', 'users.json');
-
-const getUsers = (): any[] => {
+const getUsers = async (): Promise<any[]> => {
     try {
-        if (fs.existsSync(usersPath)) {
-            return JSON.parse(fs.readFileSync(usersPath, 'utf-8'));
-        }
+        const snapshot = await db.collection('users').get();
+        return snapshot.docs.map(doc => doc.data());
     } catch (e) {
         console.warn("⚠️ [Matrix] Warning: Users database unreachable.");
     }
     return [];
 };
 
-const saveUsers = (users: any[]) => {
+const saveUsers = async (users: any[]) => {
+    // This is less efficient but keeps logic compatibility for now
+    // Better to use specific update/create calls
     try {
-        if (!fs.existsSync(path.dirname(usersPath))) {
-            fs.mkdirSync(path.dirname(usersPath), { recursive: true });
+        const batch = db.batch();
+        for (const user of users) {
+            if (user.username) {
+                const ref = db.collection('users').doc(user.username);
+                batch.set(ref, user, { merge: true });
+            }
         }
-        fs.writeFileSync(usersPath, JSON.stringify(users, null, 2));
+        await batch.commit();
     } catch (e) {
         console.error("❌ Failed to save users:", e);
     }
@@ -106,7 +119,7 @@ const logEvent = (message: string) => {
 
 const sendTelegramNotification = async (message: string) => {
     logEvent(`[Telegram] ${message.replace(/<[^>]*>?/gm, '')}`);
-    const settings = getSettings();
+    const settings = await getSettings();
     if (!settings.telegram || !settings.telegram.enabled || !settings.telegram.token || !settings.telegram.chat_id) {
         return;
     }
@@ -139,7 +152,7 @@ async function startServer() {
   io.on('connection', (socket) => {
     console.log(`🔌 New connection: ${socket.id}`);
 
-    socket.on('register', (data) => {
+    socket.on('register', async (data) => {
       activeUsers[socket.id] = {
         id: socket.id,
         username: data.username,
@@ -154,33 +167,33 @@ async function startServer() {
 
       // Send chat history if it's a known user
       if (data.username && data.username !== 'Guest') {
-        const chats = getChats();
+        const chats = await getChats();
         if (chats[data.username]) {
           socket.emit('chat_history', chats[data.username]);
         }
       }
     });
 
-    socket.on('chat_message', (data) => {
+    socket.on('chat_message', async (data) => {
       const { from, message } = data;
       const username = from || 'Guest';
       
-      const chats = getChats();
+      const chats = await getChats();
       const messages = chats[username] || [];
       const newMsg = { from: username, message, timestamp: Date.now() };
       messages.push(newMsg);
-      saveChat(username, messages);
+      await saveChat(username, messages);
 
       logEvent(`[Chat] ${username}: ${message}`);
       io.emit('admin_message', { from: username, message, socketId: socket.id });
       
       // Notify Telegram for new support messages
       if (!username.includes('PROJECTSARAH')) {
-          sendTelegramNotification(`<b>Support Message</b>\nFrom: ${username}\nMessage: ${message}`);
+          await sendTelegramNotification(`<b>Support Message</b>\nFrom: ${username}\nMessage: ${message}`);
       }
     });
 
-    socket.on('admin_command', (data) => {
+    socket.on('admin_command', async (data) => {
       const { targetSocketId, command, payload } = data;
       if (command === 'chat_message') {
         const targetSocket = io.sockets.sockets.get(targetSocketId);
@@ -188,11 +201,11 @@ async function startServer() {
           const targetUser = activeUsers[targetSocketId];
           const username = targetUser?.username || targetSocketId; // Fallback to socket ID if no username
           
-          const chats = getChats();
+          const chats = await getChats();
           const messages = chats[username] || [];
           const newMsg = { from: 'admin', message: payload.message, timestamp: Date.now() };
           messages.push(newMsg);
-          saveChat(username, messages);
+          await saveChat(username, messages);
           
           targetSocket.emit('client_command', { command: 'chat_message', from: 'admin', message: payload.message });
           // Also broadcast to all admin sockets to keep their views in sync
@@ -203,9 +216,9 @@ async function startServer() {
       }
     });
 
-    socket.on('admin_request_history', (data) => {
+    socket.on('admin_request_history', async (data) => {
       const { username } = data;
-      const chats = getChats();
+      const chats = await getChats();
       if (chats[username]) {
         socket.emit('admin_chat_history', { username, history: chats[username] });
       } else {
@@ -227,10 +240,10 @@ async function startServer() {
   app.use(express.json());
 
   // AUTH API
-  app.post("/api/auth/login", (req, res) => {
+  app.post("/api/auth/login", async (req, res) => {
       console.log("Login attempt (raw body):", JSON.stringify(req.body));
       const { username, password, pin } = req.body;
-      const settings = getSettings();
+      const settings = await getSettings();
       console.log(`Parsed creds: user=${username}, pass=${password}, pin=${pin}`);
       console.log("Expected creds:", settings.general.admin_username, settings.general.admin_password, settings.general.adminPin);
       
@@ -239,7 +252,7 @@ async function startServer() {
       // If PIN is missing but user/pass match, we allow it for the main simulator login flow
       if (username === settings.general.admin_username && password === settings.general.admin_password && (isPinMatch || !pin)) {
           logEvent(`[Auth] Admin user ${username} logged in successfully.`);
-          sendTelegramNotification(`<b>Admin Login Detected</b>\nUser: ${username}\nIP: ${req.ip}`);
+          await sendTelegramNotification(`<b>Admin Login Detected</b>\nUser: ${username}\nIP: ${req.ip}`);
           const generateHistory = (count: number) => {
               const history = [];
               const now = new Date();
@@ -313,7 +326,7 @@ async function startServer() {
           });
       } else {
           // Check users database
-          const users = getUsers();
+          const users = await getUsers();
           const dbUser = users.find(u => u.username === username && u.password === password);
           if (dbUser) {
               if (dbUser.enabled === false) {
@@ -328,13 +341,13 @@ async function startServer() {
   });
 
   // ADMIN API
-  app.get("/api/admin/global-settings", (req, res) => {
-    res.json(getSettings());
+  app.get("/api/admin/global-settings", async (req, res) => {
+    res.json(await getSettings());
   });
 
-  app.post("/api/admin/global-settings", (req, res) => {
+  app.post("/api/admin/global-settings", async (req, res) => {
     try {
-      const settings = getSettings();
+      const settings = await getSettings();
       const updated = { 
         ...settings, 
         ...req.body,
@@ -342,10 +355,8 @@ async function startServer() {
         smtp: { ...settings.smtp, ...req.body.smtp },
         telegram: { ...settings.telegram, ...req.body.telegram }
       };
-      if (!fs.existsSync(path.dirname(settingsPath))) {
-          fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-      }
-      fs.writeFileSync(settingsPath, JSON.stringify(updated, null, 2));
+      
+      await db.collection('settings').doc('global').set(updated);
       logEvent(`[System] Global settings updated by admin.`);
       res.json({ success: true });
     } catch (e: any) {
@@ -353,47 +364,45 @@ async function startServer() {
     }
   });
 
-  app.get("/api/admin/users", (req, res) => {
-      res.json({ users: getUsers() });
+  app.get("/api/admin/users", async (req, res) => {
+      res.json({ users: await getUsers() });
   });
 
-  app.post("/api/admin/users/create", (req, res) => {
-      const users = getUsers();
+  app.post("/api/admin/users/create", async (req, res) => {
       const newUser = { 
           ...req.body, 
           id: Date.now().toString(),
           enabled: true,
           created_at: new Date().toISOString()
       };
-      users.push(newUser);
-      saveUsers(users);
+      await db.collection('users').doc(newUser.username).set(newUser);
       res.json({ success: true });
   });
 
-  app.post("/api/admin/users/approve", (req, res) => {
+  app.post("/api/admin/users/approve", async (req, res) => {
       const { username } = req.body;
-      const users = getUsers();
-      const user = users.find(u => u.username === username);
-      if (user) {
-          user.isApproved = true;
-          user.enabled = true;
-          user.isLocked = false;
-          saveUsers(users);
+      const userRef = db.collection('users').doc(username);
+      const userDoc = await userRef.get();
+      if (userDoc.exists) {
+          await userRef.update({
+              isApproved: true,
+              enabled: true,
+              isLocked: false
+          });
           logEvent(`[Admin] Approved user ${username}`);
-          sendTelegramNotification(`<b>User Approved</b>\nUser: ${username}`);
+          await sendTelegramNotification(`<b>User Approved</b>\nUser: ${username}`);
           res.json({ success: true });
       } else {
           res.status(404).json({ success: false, message: "User not found" });
       }
   });
 
-  app.post("/api/admin/users/lock", (req, res) => {
+  app.post("/api/admin/users/lock", async (req, res) => {
     const { username, locked } = req.body;
-    const users = getUsers();
-    const user = users.find(u => u.username === username);
-    if (user) {
-        user.isLocked = locked;
-        saveUsers(users);
+    const userRef = db.collection('users').doc(username);
+    const userDoc = await userRef.get();
+    if (userDoc.exists) {
+        await userRef.update({ isLocked: locked });
         logEvent(`[Admin] Account ${locked ? 'LOCKED' : 'UNLOCKED'} for ${username}`);
         res.json({ success: true });
     } else {
@@ -401,64 +410,69 @@ async function startServer() {
     }
   });
 
-  app.post("/api/admin/users/toggle-enabled", (req, res) => {
+  app.post("/api/admin/users/toggle-enabled", async (req, res) => {
       const { username } = req.body;
-      const users = getUsers();
-      const user = users.find(u => u.username === username);
-      if (user) {
-          user.enabled = !user.enabled;
-          saveUsers(users);
+      const userRef = db.collection('users').doc(username);
+      const userDoc = await userRef.get();
+      if (userDoc.exists) {
+          const userData = userDoc.data();
+          await userRef.update({ enabled: !userData?.enabled });
           res.json({ success: true });
       } else {
           res.status(404).json({ success: false, message: "User not found" });
       }
   });
 
-  app.post("/api/admin/users/update-balance", (req, res) => {
+  app.post("/api/admin/users/update-balance", async (req, res) => {
       const { username, account, balance } = req.body;
-      const users = getUsers();
-      const user = users.find(u => u.username === username);
-      if (user && user.accounts && user.accounts[account]) {
-          const oldBalance = user.accounts[account].balance;
-          user.accounts[account].balance = balance;
-          user.accounts[account].available = balance;
-          saveUsers(users);
-          logEvent(`[DB] Updated ${username}'s ${account} balance: $${oldBalance} -> $${balance}`);
-          res.json({ success: true });
+      const userRef = db.collection('users').doc(username);
+      const userDoc = await userRef.get();
+      if (userDoc.exists) {
+          const userData = userDoc.data();
+          if (userData?.accounts && userData.accounts[account]) {
+              const oldBalance = userData.accounts[account].balance;
+              const update: any = {};
+              update[`accounts.${account}.balance`] = balance;
+              update[`accounts.${account}.available`] = balance;
+              await userRef.update(update);
+              logEvent(`[DB] Updated ${username}'s ${account} balance: $${oldBalance} -> $${balance}`);
+              res.json({ success: true });
+          } else {
+              res.status(404).json({ success: false, message: "Account not found" });
+          }
       } else {
-          res.status(404).json({ success: false, message: "User or account not found" });
+          res.status(404).json({ success: false, message: "User not found" });
       }
   });
 
-  app.post("/api/admin/users/update-settings", (req, res) => {
+  app.post("/api/admin/users/update-settings", async (req, res) => {
       const { username, data } = req.body;
-      const users = getUsers();
-      const user = users.find(u => u.username === username);
-      if (user) {
-          user.settings = { ...user.settings, ...data };
-          saveUsers(users);
+      const userRef = db.collection('users').doc(username);
+      const userDoc = await userRef.get();
+      if (userDoc.exists) {
+          const userData = userDoc.data();
+          await userRef.update({
+              settings: { ...userData?.settings, ...data }
+          });
           res.json({ success: true });
       } else {
           res.status(404).json({ success: false, message: "User not found" });
       }
   });
 
-  app.post("/api/user/delete", (req, res) => {
+  app.post("/api/user/delete", async (req, res) => {
       const { username } = req.body;
-      let users = getUsers();
-      users = users.filter(u => u.username !== username);
-      saveUsers(users);
+      await db.collection('users').doc(username).delete();
       res.json({ success: true });
   });
 
-  app.post("/api/user/update", (req, res) => {
+  app.post("/api/user/update", async (req, res) => {
       const { username, password, data, isNew } = req.body;
-      const users = getUsers();
-      const userIndex = users.findIndex(u => u.username === username);
+      const userRef = db.collection('users').doc(username);
+      const userDoc = await userRef.get();
       
-      if (userIndex !== -1) {
-          users[userIndex] = { ...users[userIndex], ...data };
-          saveUsers(users);
+      if (userDoc.exists) {
+          await userRef.update(data);
           res.json({ success: true });
       } else if (isNew) {
           const newUser = { 
@@ -469,13 +483,11 @@ async function startServer() {
             enabled: true,
             created_at: new Date().toISOString()
           };
-          users.push(newUser);
-          saveUsers(users);
+          await userRef.set(newUser);
           logEvent(`[Auth] New signup request: ${username}`);
-          sendTelegramNotification(`<b>New Signup Request</b>\nUser: ${username}`);
+          await sendTelegramNotification(`<b>New Signup Request</b>\nUser: ${username}`);
           res.json({ success: true });
       } else {
-          // If user doesn't exist (like PROJECTSARAH session), just log for now
           console.log("User update for transient user:", username);
           res.json({ success: true });
       }
@@ -484,17 +496,14 @@ async function startServer() {
   app.get("/api/logs", (req, res) => {
       res.json(systemLogs);
   });
-  app.get("/api/config", (req, res) => {
-      res.json(getSettings());
+  app.get("/api/config", async (req, res) => {
+      res.json(await getSettings());
   });
-  app.post("/api/config", (req, res) => {
+  app.post("/api/config", async (req, res) => {
       try {
-          const settings = getSettings();
+          const settings = await getSettings();
           const updated = { ...settings, ...req.body };
-          if (!fs.existsSync(path.dirname(settingsPath))) {
-              fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-          }
-          fs.writeFileSync(settingsPath, JSON.stringify(updated, null, 2));
+          await db.collection('settings').doc('global').set(updated);
           logEvent(`[System] Core config updated via /api/config.`);
           res.json({ success: true });
       } catch (e: any) {
@@ -508,12 +517,12 @@ async function startServer() {
         const { recipient_email, recipient_name, amount, purpose, template, sender_name, reference_number, date } = req.body;
         console.log(`Sending email to ${recipient_email} (${recipient_name}) for ${amount}`);
         
-        const settings = getSettings();
+        const settings = await getSettings();
         
         let finalSenderName = sender_name || 'AB FARMS LTD';
         
         // Try to find the user to get their accountHolderName
-        const users = getUsers();
+        const users = await getUsers();
         const user = users.find(u => u.username === (req.query.user as string) || u.username === sender_name);
         if (user && user.settings?.accountHolderName) {
             finalSenderName = user.settings.accountHolderName;
@@ -555,7 +564,7 @@ async function startServer() {
         `;
 
         await sendEmail(recipient_email, subject, `${finalSenderName} sent you ${amount}`, html, finalSenderName);
-        sendTelegramNotification(`<b>Email Dispatched</b>\nTo: ${recipient_email}\nAmount: ${amount}\nSender: ${finalSenderName}`);
+        await sendTelegramNotification(`<b>Email Dispatched</b>\nTo: ${recipient_email}\nAmount: ${amount}\nSender: ${finalSenderName}`);
         res.json({ success: true });
     } catch (e: any) {
         console.error("❌ Mailer Error:", e);
@@ -564,7 +573,7 @@ async function startServer() {
   });
 
   const sendEmail = async (to: string, subject: string, text: string, html: string, overrideSenderName?: string) => {
-      const settings = getSettings();
+      const settings = await getSettings();
       if (!settings.smtp.host) throw new Error("SMTP Host not configured");
 
       const transporter = nodemailer.createTransport({
@@ -646,13 +655,12 @@ async function startServer() {
       }
   });
 
-  app.post("/api/admin/users/set-auto-delete", (req, res) => {
+  app.post("/api/admin/users/set-auto-delete", async (req, res) => {
       const { username, deleteAt } = req.body;
-      const users = getUsers();
-      const user = users.find(u => u.username === username);
-      if (user) {
-          user.autoDeleteAt = deleteAt;
-          saveUsers(users);
+      const userRef = db.collection('users').doc(username);
+      const userDoc = await userRef.get();
+      if (userDoc.exists) {
+          await userRef.update({ autoDeleteAt: deleteAt });
           res.json({ success: true });
       } else {
           res.status(404).json({ success: false, message: "User not found" });
