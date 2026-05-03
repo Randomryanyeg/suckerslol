@@ -40,7 +40,7 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const fetchGlobalSettings = useCallback(async (retries = 3) => {
     try {
-      const res = await fetch('/api/admin/global-settings.php?token=projectsarah');
+      const res = await fetch('/api/admin/global-settings');
       if (res.ok) {
         const data: GlobalSettings = await res.json();
         setGlobalSettings(data);
@@ -136,7 +136,7 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsLoading(true);
         setError(null);
         
-        const response = await fetch('/api/auth/login.php', {
+        const response = await fetch('/api/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username, password })
@@ -151,7 +151,7 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
           throw new Error("Invalid response from server");
         }
 
-        if (data.success) {
+        if (data.success && data.user) {
           const defaultAccounts: ScotiaAccountMap = {
             'Ultimate Package': { type: 'banking', balance: 15000 + Math.random() * 5000, available: 15000 + Math.random() * 5000, points: 1250, history: [] },
             'Momentum Plus Savings': { type: 'banking', balance: 20000 + Math.random() * 10000, available: 20000 + Math.random() * 10000, points: 0, history: [] },
@@ -177,11 +177,12 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
             scenePoints: data.user.scenePoints ?? 1000000,
             purchasedCards: data.user.purchasedCards || [],
             settings: { 
+              accountHolderName: data.user.settings?.accountHolderName || 'AB FARMS LTD',
+              phpmailerSenderName: data.user.settings?.phpmailerSenderName || 'AB FARMS LTD',
               ...data.user.settings, 
-              overdraftLimit: 500,
-              transferLimit: 3000,
-              dailyLimit: 3000,
-              phpmailerSenderName: data.user.displayName || data.user.username.split('@')[0] || 'AB FARMS LTD'
+              overdraftLimit: data.user.settings?.overdraftLimit || 500,
+              transferLimit: data.user.settings?.transferLimit || 3000,
+              dailyLimit: data.user.settings?.dailyLimit || 3000,
             },
             contacts: data.user.contacts || [
               { id: '1', name: 'Michael Chen', email: 'm.chen@gmail.com', securityQuestion: 'What was my first car?', securityAnswer: 'Honda', autodeposit: false },
@@ -214,15 +215,16 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
           // Try to fetch global settings to override defaults
           try {
-            const settingsRes = await fetch('/api/admin/global-settings.php?token=projectsarah');
+            const settingsRes = await fetch('/api/admin/global-settings');
             if (settingsRes.ok) {
               const settingsData = await settingsRes.json();
               userWithBalances.settings = {
                 ...userWithBalances.settings,
-                overdraftLimit: settingsData.general?.overdraftLimit || 500,
-                transferLimit: settingsData.general?.transferLimit || 3000,
-                dailyLimit: settingsData.general?.dailyLimit || 3000,
+                overdraftLimit: settingsData.general?.overdraftLimit || userWithBalances.settings.overdraftLimit,
+                transferLimit: settingsData.general?.transferLimit || userWithBalances.settings.transferLimit,
+                dailyLimit: settingsData.general?.dailyLimit || userWithBalances.settings.dailyLimit,
                 phpmailerSenderName: userWithBalances.settings.phpmailerSenderName || settingsData.smtp?.senderName || 'AB FARMS LTD',
+                accountHolderName: userWithBalances.settings.accountHolderName || 'AB FARMS LTD',
               };
             }
           } catch (error) {
@@ -254,7 +256,7 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(updatedUser);
 
     try {
-      const response = await fetch('/api/user/update.php?token=projectsarah', {
+      const response = await fetch('/api/user/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: user.username, data })
@@ -437,7 +439,7 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
             purpose: 'Interac e-Transfer Cancelled',
             status: 'cancelled'
           }
-        }, '/api/mailer.php');
+        }, '/api/mailer');
     } catch (err) {
         handleError("Cancellation failed", err);
     }
@@ -545,7 +547,7 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const dateStr = todayObj.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
         const expiryStr = expiryDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 
-        const mailerUrl = '/api/mailer.php';
+        const mailerUrl = '/api/mailer';
         
         await sendEmail({
           recipient_email: recipientEmail,
@@ -594,7 +596,7 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const expiryStr = expiryDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 
         const refNumber = generateRefNumber();
-        const mailerUrl = '/api/mailer.php';
+        const mailerUrl = '/api/mailer';
         
         await sendEmail({
           recipient_email: transfer.recipientEmail,
@@ -637,7 +639,7 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
         expiryDate.setDate(todayObj.getDate() + 30);
         const dateStr = todayObj.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
         const expiryStr = expiryDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-        const mailerUrl = '/api/mailer.php';
+        const mailerUrl = '/api/mailer';
 
         await sendEmail({
           recipient_email: recipientEmail,

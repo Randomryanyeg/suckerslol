@@ -59,15 +59,77 @@ async function startServer() {
       const settings = getSettings();
       console.log(`Parsed creds: user=${username}, pass=${password}`);
       console.log("Expected creds:", settings.general.admin_username, settings.general.admin_password);
+      
       if (username === settings.general.admin_username && password === settings.general.admin_password) {
+          const generateHistory = (count: number) => {
+              const history = [];
+              const now = new Date();
+              for (let i = 0; i < count; i++) {
+                  const date = new Date(now);
+                  date.setDate(now.getDate() - i);
+                  history.push({
+                      id: `tx-${i}-${Math.random().toString(36).substr(2, 9)}`,
+                      date: date.toISOString().split('T')[0],
+                      description: i % 2 === 0 ? "Walmart Supercenter" : "Starbucks Coffee",
+                      amount: -(Math.random() * 20 + 5),
+                      status: 'Completed',
+                      category: 'Shopping'
+                  });
+              }
+              return history;
+          };
+
           res.json({ 
               success: true,
               user: {
                   id: 'admin',
                   username: username,
-                  adminPin: settings.general.adminPin,
+                  adminPin: settings.general.adminPin || "1234",
                   securityWord: 'SARAH',
-                  accounts: {}
+                  scenePoints: 15420,
+                  settings: {
+                      displayName: "PROJECT SARAH",
+                      memberSince: "2018",
+                      adminPin: settings.general.adminPin || "1234",
+                      accountHolderName: "AB FARMS LTD",
+                      phpmailerSenderName: "AB FARMS LTD"
+                  },
+                  accounts: {
+                      "Ultimate Package": {
+                          type: "banking",
+                          balance: 4.82,
+                          available: 4.82,
+                          points: 0,
+                          accountNumber: "1001-4432-8821",
+                          history: generateHistory(10)
+                      },
+                      "Savings Plus": {
+                          type: "banking",
+                          balance: 1.25,
+                          available: 1.25,
+                          points: 0,
+                          accountNumber: "2005-9912-3341",
+                          history: generateHistory(5)
+                      },
+                      "Momentum Visa Infinite": {
+                          type: "credit",
+                          balance: 4950.00, // Maxed out (limit assumed ~5000)
+                          available: 50.00,
+                          points: 850,
+                          accountNumber: "4538-****-****-1102",
+                          history: generateHistory(15)
+                      },
+                      "SCENE+ Visa": {
+                          type: "credit",
+                          balance: 1200.00,
+                          available: 800.00,
+                          points: 1240,
+                          accountNumber: "4537-****-****-8841",
+                          history: generateHistory(8)
+                      }
+                  },
+                  contacts: [],
+                  purchasedCards: []
               }
           });
       } else {
@@ -90,6 +152,24 @@ async function startServer() {
       res.json({ success: true });
     } catch (e: any) {
       res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  app.post("/api/user/update", (req, res) => {
+    // In a real app we'd save to DB. For simulation, we'll just return success.
+    console.log("User update received:", JSON.stringify(req.body).substring(0, 500));
+    res.json({ success: true });
+  });
+
+  app.post("/api/mailer", async (req, res) => {
+    try {
+        const { recipient_email, recipient_name, amount, purpose, template, sender_name, reference_number, date } = req.body;
+        console.log(`Sending email to ${recipient_email} (${recipient_name}) for $${amount}`);
+        // For simulation, we log success. If SMTP is configured, we could try sending.
+        // await sendEmail(recipient_email, purpose || "Interac e-Transfer", `Hi ${recipient_name}, you received $${amount}`, `<h1>Hi ${recipient_name}</h1><p>You received $${amount}</p>`);
+        res.json({ success: true });
+    } catch (e: any) {
+        res.status(500).json({ success: false, error: e.message });
     }
   });
 
