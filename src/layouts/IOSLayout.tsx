@@ -272,6 +272,7 @@ export default function IOSLayout() {
                     <motion.div key="account-details" initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} className="absolute inset-0">
                       <AccountDetailsView 
                         accountName={selectedAccount}
+                        accountNumber={user.accounts[selectedAccount]?.accountNumber}
                         balance={user.accounts[selectedAccount]?.balance || 0}
                         onHold={user.accounts[selectedAccount]?.onHold || 0}
                         history={user.accounts[selectedAccount]?.history || []}

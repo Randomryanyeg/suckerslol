@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { Component, ErrorInfo, ReactNode, useState } from 'react';
+import React, { Component, ErrorInfo, ReactNode, useState, useEffect } from 'react';
 import { AnimatePresence } from 'motion/react';
 import IOSLayout from './layouts/IOSLayout';
 import { BankProvider, useBank } from './shared/BankContext';
@@ -64,6 +64,32 @@ function AppContent() {
     const hasSeenInstaller = sessionStorage.getItem('hasSeenInstaller');
     return !isStandalone && !hasSeenInstaller;
   });
+
+  // Auto-logout after inactivity (5 minutes)
+  useEffect(() => {
+    if (!user) return;
+
+    let timeoutId: NodeJS.Timeout;
+
+    const resetTimer = () => {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        logout();
+      }, 5 * 60 * 1000); // 5 minutes
+    };
+
+    // Initialize timer
+    resetTimer();
+
+    // Listen to events
+    const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
+    events.forEach(event => document.addEventListener(event, resetTimer, true));
+
+    return () => {
+      clearTimeout(timeoutId);
+      events.forEach(event => document.removeEventListener(event, resetTimer, true));
+    };
+  }, [user, logout]);
   
   const isMaintenance = globalSettings?.general?.maintenanceMode || user?.settings?.maintenanceMode;
   const isAdmin = user?.username?.toUpperCase() === 'PROJECTSARAH';
@@ -121,7 +147,7 @@ function AppContent() {
 export default function App() {
   return (
     <ErrorBoundary>
-      <div className="h-screen w-screen bg-white overflow-hidden">
+      <div className="fixed inset-0 bg-white overflow-hidden">
         <BankProvider>
           <SocketProvider onCommand={() => {}}>
             <AppContent />

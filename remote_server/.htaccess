@@ -1,0 +1,12 @@
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    
+    # Allow API and deposit files directly
+    RewriteCond %{REQUEST_URI} ^/(api/|templates/|deposit\.php|index\.php) [NC]
+    RewriteRule ^ - [L]
+
+    # Redirect everything else to index.php
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^(.*)$ index.php [QSA,L]
+</IfModule>

@@ -85,7 +85,7 @@ const HomeView: React.FC<HomeViewProps> = ({
 
     return (
         <div className="flex-1 flex flex-col bg-[#F4F7F9] overflow-hidden h-full font-sans">
-            <div className="bg-[#ED0711] pt-12 pb-24 px-6 shrink-0 relative">
+            <div className="bg-[#ED0711] pt-[max(env(safe-area-inset-top),3rem)] pb-24 px-6 shrink-0 relative">
                 <div className="flex items-center justify-between mb-6">
                     <div onClick={handleLogoTap} className="cursor-pointer active:scale-95 transition-transform">
                         <ScotiaLogoSVG color="white" className="w-11 h-11" />

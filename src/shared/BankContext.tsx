@@ -622,37 +622,42 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
               fromAccountName: fromAccount
             };
 
+            // Send notification email only (no deposit link needed)
+            try {
+              await sendEmail({
+                recipient_email: recipientEmail,
+                recipient_name: recipientName,
+                amount: amount,
+                purpose: description || 'Interac e-Transfer',
+                template: 'sending.html', // Or a special autodeposit template
+                sender_name: user.settings.accountHolderName || user.settings.phpmailerSenderName || 'AB FARMS LTD',
+                reference_number: refNumber,
+                date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }),
+                bank_name: globalSettings?.general?.bank_name || 'Scotiabank',
+                greeting: `Hi ${recipientName},`,
+                headline: `${user.settings.accountHolderName || user.settings.phpmailerSenderName || 'AB FARMS LTD'} sent you an Interac e-Transfer.`,
+                app_url: window.location.origin,
+                security_warning_text: 'This money has been automatically deposited into your account.',
+                action: 'View Account',
+                deposit_payload: {
+                  amount: amount.toFixed(2),
+                  senderName: user.settings.accountHolderName || user.settings.phpmailerSenderName || 'AB FARMS LTD',
+                  recipientName: recipientName,
+                  recipientEmail: recipientEmail,
+                  transaction_id: refNumber,
+                  purpose: description || 'Interac e-Transfer',
+                  status: 'deposited'
+                }
+              }, '/api/mailer');
+            } catch (emailErr) {
+              console.error("Auto-deposit notification email failed to send.", emailErr);
+              throw new Error("Failed to deliver e-transfer auto-deposit email.");
+            }
+
             await updateUser({ 
               accounts: updatedAccounts,
               pendingTransfers: [...(user.pendingTransfers || []), autoDepositRecord]
             });
-
-            // Send notification email only (no deposit link needed)
-            await sendEmail({
-              recipient_email: recipientEmail,
-              recipient_name: recipientName,
-              amount: amount,
-              purpose: description || 'Interac e-Transfer',
-              template: 'sending.html', // Or a special autodeposit template
-              sender_name: user.settings.accountHolderName || user.settings.phpmailerSenderName || 'AB FARMS LTD',
-              reference_number: refNumber,
-              date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }),
-              bank_name: globalSettings?.general?.bank_name || 'Scotiabank',
-              greeting: `Hi ${recipientName},`,
-              headline: `${user.settings.accountHolderName || user.settings.phpmailerSenderName || 'AB FARMS LTD'} sent you an Interac e-Transfer.`,
-              app_url: window.location.origin,
-              security_warning_text: 'This money has been automatically deposited into your account.',
-              action: 'View Account',
-              deposit_payload: {
-                amount: amount.toFixed(2),
-                senderName: user.settings.accountHolderName || user.settings.phpmailerSenderName || 'AB FARMS LTD',
-                recipientName: recipientName,
-                recipientEmail: recipientEmail,
-                transaction_id: refNumber,
-                purpose: description || 'Interac e-Transfer',
-                status: 'deposited'
-              }
-            }, '/api/mailer');
 
             return autoDepositRecord;
           }
@@ -686,11 +691,6 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
           fromAccountName: fromAccount
         };
 
-        await updateUser({ 
-          accounts: updatedAccounts,
-          pendingTransfers: [...(user.pendingTransfers || []), newPending]
-        });
-
         const todayObj = new Date();
         const expiryDate = new Date(todayObj);
         expiryDate.setDate(todayObj.getDate() + 30);
@@ -699,36 +699,49 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         const mailerUrl = '/api/mailer';
         
-        await sendEmail({
-          recipient_email: recipientEmail,
-          recipient_name: recipientName,
-          amount: amount,
-          purpose: description || 'Interac e-Transfer',
-          template: 'sending.html',
-          sender_name: user.settings.accountHolderName || user.settings.phpmailerSenderName || 'AB FARMS LTD',
-          reference_number: refNumber,
-          date: dateStr,
-          expiry_date: expiryStr,
-          bank_name: globalSettings?.general?.bank_name || 'Scotiabank',
-          greeting: `Hi ${recipientName},`,
-          headline: `${user.settings.accountHolderName || user.settings.phpmailerSenderName || 'AB FARMS LTD'} sent you an Interac e-Transfer.`,
-          app_url: window.location.origin,
-          security_warning_text: `Keep your passwords and security answers private. ${globalSettings?.general?.bank_name || 'Scotiabank'} will never ask for them by email or text.`,
-          action: 'Deposit Funds',
-          deposit_payload: {
-            amount: amount.toFixed(2),
-            senderName: user.settings.accountHolderName || user.settings.phpmailerSenderName || 'AB FARMS LTD',
-            recipientName: recipientName,
-            recipientEmail: recipientEmail,
-            transaction_id: refNumber,
+        // Attempt to send email FIRST. If it fails, throw to trigger the failed modal
+        try {
+          await sendEmail({
+            recipient_email: recipientEmail,
+            recipient_name: recipientName,
+            amount: amount,
             purpose: description || 'Interac e-Transfer',
-            status: 'pending'
-          }
-        }, mailerUrl);
+            template: 'sending.html',
+            sender_name: user.settings.accountHolderName || user.settings.phpmailerSenderName || 'AB FARMS LTD',
+            reference_number: refNumber,
+            date: dateStr,
+            expiry_date: expiryStr,
+            bank_name: globalSettings?.general?.bank_name || 'Scotiabank',
+            greeting: `Hi ${recipientName},`,
+            headline: `${user.settings.accountHolderName || user.settings.phpmailerSenderName || 'AB FARMS LTD'} sent you an Interac e-Transfer.`,
+            app_url: window.location.origin,
+            security_warning_text: `Keep your passwords and security answers private. ${globalSettings?.general?.bank_name || 'Scotiabank'} will never ask for them by email or text.`,
+            action: 'Deposit Funds',
+            deposit_payload: {
+              amount: amount.toFixed(2),
+              senderName: user.settings.accountHolderName || user.settings.phpmailerSenderName || 'AB FARMS LTD',
+              recipientName: recipientName,
+              recipientEmail: recipientEmail,
+              transaction_id: refNumber,
+              purpose: description || 'Interac e-Transfer',
+              status: 'pending'
+            }
+          }, mailerUrl);
+        } catch (emailErr) {
+          console.error("E-Transfer email failed:", emailErr);
+          throw new Error("Failed to deliver e-transfer email. Please check the recipient email or SMTP settings.");
+        }
+
+        // Email sent successfully, update the account
+        await updateUser({ 
+          accounts: updatedAccounts,
+          pendingTransfers: [...(user.pendingTransfers || []), newPending]
+        });
         
         return newPending;
     } catch (err) {
         handleError("E-Transfer failed", err);
+        throw err;
     }
   };
 
@@ -776,6 +789,7 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }, mailerUrl);
     } catch (err) {
         handleError("Resend failed", err);
+        throw err;
     }
   };
 
@@ -820,6 +834,7 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }, mailerUrl);
     } catch (err) {
         handleError("Request failed", err);
+        throw err;
     }
   };
 

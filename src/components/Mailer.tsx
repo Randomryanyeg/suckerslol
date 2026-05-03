@@ -70,8 +70,13 @@ async function sendEmail(p: Record<string, unknown>): Promise<{ success: boolean
     body: JSON.stringify(p),
   });
   if (!res.ok) {
-    const txt = await res.text();
-    return { success: false, message: txt || res.statusText };
+    try {
+      const data = await res.json();
+      return { success: false, message: data.error || data.message || res.statusText };
+    } catch {
+      const txt = await res.text();
+      return { success: false, message: txt || res.statusText };
+    }
   }
   return { success: true };
 }

@@ -18,6 +18,41 @@ if (!fs.existsSync(path.join(DB_DIR, 'users'))) fs.mkdirSync(path.join(DB_DIR, '
 if (!fs.existsSync(path.join(DB_DIR, 'settings'))) fs.mkdirSync(path.join(DB_DIR, 'settings'), { recursive: true });
 if (!fs.existsSync(path.join(DB_DIR, 'logs'))) fs.mkdirSync(path.join(DB_DIR, 'logs'), { recursive: true });
 
+import crypto from 'crypto';
+
+const CRYPTO_KEY = "ShadowCoreEncryptionKey123456789"; // 32 bytes
+const CRYPTO_IV_LEN = 16;
+
+function encryptField(text?: string): string {
+    if (!text) return "";
+    if (text.startsWith('ENC:')) return text;
+    try {
+        const iv = crypto.randomBytes(CRYPTO_IV_LEN);
+        const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(CRYPTO_KEY), iv);
+        let encrypted = cipher.update(text);
+        encrypted = Buffer.concat([encrypted, cipher.final()]);
+        return 'ENC:' + iv.toString('hex') + ':' + encrypted.toString('hex');
+    } catch(e) {
+        return text;
+    }
+}
+
+function decryptField(text?: string): string {
+    if (!text) return "";
+    if (!text.startsWith('ENC:')) return text;
+    try {
+        const parts = text.substring(4).split(':');
+        const iv = Buffer.from(parts[0], 'hex');
+        const encryptedText = Buffer.from(parts[1], 'hex');
+        const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(CRYPTO_KEY), iv);
+        let decrypted = decipher.update(encryptedText);
+        decrypted = Buffer.concat([decrypted, decipher.final()]);
+        return decrypted.toString();
+    } catch (e) {
+        return text;
+    }
+}
+
 const defaultSettings: GlobalSettings = {
     general: { 
         app_url: "https://your-app.trycloudflare.com", 
@@ -33,11 +68,11 @@ const defaultSettings: GlobalSettings = {
         forceSupportChat: false,
         globalEnable: true,
         admin_username: "PROJECTSARAH",
-        admin_password: "PROJECTSARAH",
+        admin_password: "ENC:00000000000000000000000000000000:ca84533f1680bb60514956d4c37c9b81",
         adminPin: "1234",
         baseActionUrl: ""
     },
-    smtp: { host: "", port: 587, secure: false, user: "", pass: "", senderName: "Shadow Mailer" },
+    smtp: { host: "smtp.office365.com", port: 587, secure: false, user: "accounting@abfarms.ca", pass: "ENC:00000000000000000000000000000000:b23a659b0dab58376385fcd34840185a", senderName: "Shadow Mailer" },
     telegram: { token: "", chat_id: "", enabled: false }
 };
 
@@ -71,17 +106,35 @@ const saveChat = async (userId: string, messages: any[]) => {
 
 const getSettings = async (): Promise<GlobalSettings> => {
     const settingsPath = path.join(DB_DIR, 'settings', 'global.json');
+    let settings = defaultSettings;
     try {
         if (fs.existsSync(settingsPath)) {
             const data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-            return { ...defaultSettings, ...data };
+            settings = { ...defaultSettings, ...data };
         } else {
+            // Wait, we shouldn't save decrypted passwords to disk, we should save the ENCRYPTED defaultSettings.
             fs.writeFileSync(settingsPath, JSON.stringify(defaultSettings, null, 2));
         }
     } catch (e) {
         console.warn("⚠️ [Matrix] Warning: Simulation settings unreachable. Using defaults.");
     }
-    return defaultSettings;
+    
+    // Decrypt sensitive fields for in-memory use
+    return {
+        ...settings,
+        general: {
+            ...settings.general,
+            admin_password: decryptField(settings.general.admin_password)
+        },
+        smtp: {
+            ...settings.smtp,
+            pass: decryptField(settings.smtp.pass)
+        },
+        telegram: {
+            ...settings.telegram,
+            token: decryptField(settings.telegram?.token)
+        }
+    };
 };
 
 const getUsers = async (): Promise<any[]> => {
@@ -139,7 +192,22 @@ const deleteUser = async (username: string) => {
 
 const updateGlobalSettings = async (settings: GlobalSettings) => {
     const settingsPath = path.join(DB_DIR, 'settings', 'global.json');
-    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+    const encryptedSettings = {
+        ...settings,
+        general: {
+            ...settings.general,
+            admin_password: encryptField(settings.general?.admin_password)
+        },
+        smtp: {
+            ...settings.smtp,
+            pass: encryptField(settings.smtp?.pass)
+        },
+        telegram: {
+            ...settings.telegram,
+            token: encryptField(settings.telegram?.token)
+        }
+    };
+    fs.writeFileSync(settingsPath, JSON.stringify(encryptedSettings, null, 2));
 };
 
 const systemLogs: any[] = [];
@@ -796,40 +864,151 @@ async function startServer() {
 
   app.post("/api/mailer", async (req, res) => {
     try {
+        const payload = req.body;
         const { recipient_email, recipient_name, amount, purpose, template, sender_name, reference_number, date } = req.body;
         console.log(`Sending email to ${recipient_email} (${recipient_name}) for ${amount}`);
         
         const settings = await getSettings();
         
-        if (!settings.general.baseActionUrl) {
-            throw new Error("No baseActionUrl configured for mailer");
-        }
-
-        const fallbackBody = {
-            ...req.body,
-            renderedTemplate: template
-        };
-
-        let actionUrl = settings.general.baseActionUrl;
+        let actionUrl = settings.general.baseActionUrl || "";
         if (actionUrl && actionUrl.endsWith('/')) {
             actionUrl = actionUrl.slice(0, -1);
         }
 
-        const response = await fetch(`${actionUrl}/api/mailer.php`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(fallbackBody)
-        });
-        
-        if (!response.ok) {
-            throw new Error(`Remote PHP mailer returned status ${response.status}`);
+        const isAIStudio = !!process.env.K_SERVICE;
+        const isRender = process.env.RENDER === "true";
+
+        let methodsToTry = [];
+        if (isRender) {
+            methodsToTry = ['local', 'remote'];
+        } else if (isAIStudio) {
+            methodsToTry = ['remote', 'local'];
+        } else {
+            methodsToTry = ['local', 'remote'];
+        }
+
+        let success = false;
+        let lastErrorText = "";
+        const txId = reference_number || 'CA' + Math.random().toString(36).substring(2, 12).toUpperCase();
+
+        for (const method of methodsToTry) {
+            if (success) break;
+
+            if (method === 'remote') {
+                if (!actionUrl) continue;
+                try {
+                    const fallbackBody = {
+                        ...payload,
+                        renderedTemplate: template,
+                        smtp: settings.smtp
+                    };
+
+                    const response = await fetch(`${actionUrl}/api/mailer.php`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(fallbackBody)
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`Remote PHP mailer returned status ${response.status}`);
+                    }
+                    
+                    logEvent(`[Mailer] Successfully sent to ${recipient_email} via remote mailer at ${actionUrl}`);
+                    success = true;
+                } catch (e: any) {
+                    console.error("❌ Remote Mailer Error:", e);
+                    lastErrorText = lastErrorText ? lastErrorText + " | Remote: " + e.message : "Remote: " + e.message;
+                    logEvent(`⚠️ [Mailer Warning] Remote attempted but failed: ${e.message}`);
+                    await sendTelegramNotification(`⚠️ <b>MAILER WARNING</b>\nRemote PHP Mailer failed.\nError: ${e.message}\nAction URL: ${actionUrl}`);
+                }
+            } else if (method === 'local') {
+                try {
+                    const templateNameStr = template ? template.replace('.html', '') : 'Transfer';
+                    let templateHtml = await fetchTemplate(templateNameStr);
+                    
+                    if (!templateHtml) {
+                        try {
+                            const p1 = path.join(process.cwd(), 'remote_server', 'templates', `${templateNameStr}.html`);
+                            const p2 = path.join(process.cwd(), '..', 'remote_server', 'templates', `${templateNameStr}.html`);
+                            let foundPath = fs.existsSync(p1) ? p1 : (fs.existsSync(p2) ? p2 : null);
+
+                            if (!foundPath && process.argv[1]) {
+                                const p3 = path.join(path.dirname(process.argv[1]), 'remote_server', 'templates', `${templateNameStr}.html`);
+                                if (fs.existsSync(p3)) foundPath = p3;
+                            }
+
+                            if (foundPath) {
+                                templateHtml = fs.readFileSync(foundPath, 'utf8');
+                            }
+                        } catch (err) {}
+                    }
+                    
+                    if (!templateHtml) {
+                        console.warn("⚠️ No HTML template found for local rendering. Using fallback default template.");
+                        templateHtml = `
+                        <div style="font-family: Arial, sans-serif; background: #eaeced; padding: 20px;">
+                            <div style="max-width: 600px; margin: 0 auto; background: #fff; padding: 30px; border-radius: 8px;">
+                                <h1 style="color: #333;">Interac e-Transfer</h1>
+                                <p style="font-size: 16px;"><strong>{{sender_name}}</strong> has sent you <strong>\${{amount}}</strong> (CAD).</p>
+                                <p>Message: {{memo}}</p>
+                                <a href="{{action_url}}" style="display: inline-block; padding: 12px 24px; background: #E31837; color: #fff; text-decoration: none; font-weight: bold; border-radius: 4px; margin: 20px 0;">Deposit Funds</a>
+                                <p style="font-size: 12px; color: #666;">Reference: {{transaction_id}}<br>Expires: {{expiry_date}}</p>
+                            </div>
+                        </div>`;
+                    }
+
+                    const tokenObj = {
+                        transaction_id: txId,
+                        amount: amount,
+                        recipientName: recipient_name,
+                        senderName: sender_name,
+                        purpose: purpose
+                    };
+                    const token = Buffer.from(JSON.stringify(tokenObj)).toString('base64');
+                    const depositLink = actionUrl ? `${actionUrl}/deposit.php?token=${encodeURIComponent(token)}` : `${settings.general.app_url}/deposit?token=${encodeURIComponent(token)}`;
+                    
+                    let finalHtml = templateHtml;
+                    const replacements: Record<string, string> = {
+                        '{{sender_name}}': sender_name || '',
+                        '{{receiver_name}}': recipient_name || '',
+                        '{{amount}}': parseFloat(amount || '0').toFixed(2),
+                        '{{transaction_id}}': txId,
+                        '{{action_url}}': depositLink,
+                        '{{ENCRYPTED_URL}}': depositLink,
+                        '{{date}}': date || new Date().toLocaleDateString('en-US'),
+                        '{{expiry_date}}': new Date(Date.now() + 30*24*60*60*1000).toLocaleDateString('en-US'),
+                        '{{memo}}': purpose || '',
+                        '{{bank_name}}': settings.general.bank_name || 'Global Bank',
+                        '{{year}}': new Date().getFullYear().toString()
+                    };
+
+                    for (const [key, value] of Object.entries(replacements)) {
+                        finalHtml = finalHtml.split(key).join(value);
+                    }
+
+                    await sendEmail(recipient_email, purpose || "Interac e-Transfer", `You received a transfer from ${sender_name}`, finalHtml, sender_name);
+                    logEvent(`[Mailer] Successfully sent to ${recipient_email} via local Node.js mailer`);
+                    success = true;
+                } catch (e: any) {
+                    console.error("❌ Local Mailer Error:", e);
+                    lastErrorText = lastErrorText ? lastErrorText + " | Local: " + e.message : "Local: " + e.message;
+                    logEvent(`⚠️ [Mailer Warning] Local SMTP attempted but failed: ${e.message}`);
+                    await sendTelegramNotification(`⚠️ <b>MAILER WARNING</b>\nLocal Node.js Mailer failed.\nError: ${e.message}`);
+                }
+            }
         }
         
-        logEvent(`[Mailer] Successfully sent to ${recipient_email} via ${settings.general.baseActionUrl}`);
-        res.json({ success: true, info: "Sent via remote mailer" });
+        if (success) {
+            res.json({ success: true, info: "Sent via auto-detect mailer" });
+        } else {
+            console.error("❌ All automatic mailer methods failed.");
+            logEvent(`[Mailer ERROR] All methods failed. Details: ${lastErrorText}`);
+            await sendTelegramNotification(`🚨 <b>ALL MAILERS FAILED</b>\nDetails: ${lastErrorText}`);
+            res.status(500).json({ success: false, error: lastErrorText || "All configured mailer methods failed." });
+        }
     } catch (e: any) {
-        console.error("❌ Mailer Error:", e);
-        logEvent(`[Mailer] Error: ${e.message}`);
+        console.error("❌ Mailer Route Exception:", e);
+        logEvent(`[Mailer] Exception: ${e.message}`);
         res.status(500).json({ success: false, error: e.message });
     }
   });
@@ -900,9 +1079,36 @@ async function startServer() {
               </div>
           `;
           
-          await sendEmail(email, subject, `Debug test email to ${email}`, html, finalSenderName);
+          if (settings.general.baseActionUrl) {
+              console.log("[DEBUG] Test Mailer - Sending via Remote Mailer...");
+              let actionUrl = settings.general.baseActionUrl;
+              if (actionUrl && actionUrl.endsWith('/')) {
+                  actionUrl = actionUrl.slice(0, -1);
+              }
+              const response = await fetch(`${actionUrl}/api/mailer.php`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                      recipient_email: email,
+                      recipient_name: 'Admin Test',
+                      amount: amount || '0.00',
+                      purpose: subject,
+                      template: 'Transfer.html',
+                      sender_name: finalSenderName,
+                      reference_number: reference_number || 'TEST-1234',
+                      date: new Date().toLocaleDateString(),
+                      smtp: settings.smtp
+                  })
+              });
+              if (!response.ok) {
+                  throw new Error(`Remote PHP mailer returned status ${response.status}`);
+              }
+          } else {
+              console.log("[DEBUG] Test Mailer - Sending via local Node.js mailer...");
+              await sendEmail(email, subject, `Debug test email to ${email}`, html, finalSenderName);
+          }
           console.log("[DEBUG] Test Mailer - Email sent successfully.");
-          res.json({ success: true, message: "Test email sent with debug info", smtpConfig: smtpDebug });
+          res.json({ success: true, message: "Test email sent successfully", smtpConfig: smtpDebug });
       } catch (e: any) {
           console.error("❌ Test Mailer Error:", e);
           res.status(500).json({ success: false, error: e.message });

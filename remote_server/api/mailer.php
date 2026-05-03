@@ -70,6 +70,12 @@ class ApplicationInitializer {
 
 ApplicationInitializer::initialize();
 
+// Attempt to load composer autoload if available for PHPMailer
+$autoloadPath = dirname(__DIR__) . '/vendor/autoload.php';
+if (file_exists($autoloadPath)) {
+    require_once $autoloadPath;
+}
+
 // ==================== API RESPONSE HANDLER ====================
 class ApiResponseHandler {
     public static function sendJson($data) {
@@ -188,7 +194,7 @@ class InstantTransactionProcessor {
         return $appUrl . "/deposit.php?token=" . urlencode($token);
     }
 
-    public function processWithInstantConfirmation($request) {
+    public function processWithInstantConfirmation($request, array $smtpConfig = []) {
         // STEP 1: Generate transaction ID instantly
         $txId = $request->referenceNumber !== '' ? $request->referenceNumber : $this->generateTransactionId();
         
@@ -205,13 +211,79 @@ class InstantTransactionProcessor {
         );
         
         // STEP 4: Process email
-        $this->sendActualEmail($request, $txId, $domain);
+        if (!empty($smtpConfig)) {
+            $relayUsed = $this->sendUniversalDelivery($request, $smtpConfig)['relay_used'];
+        } else {
+            $this->sendActualEmail($request, $txId, $domain);
+            $relayUsed = 'FALLBACK_PHP_MAIL';
+        }
         
         return array(
             'confirmation' => $confirmationData,
             'provider' => $domain,
-            'relay_used' => 'INSTANT_CONFIRMATION'
+            'relay_used' => $relayUsed
         );
+    }
+    
+    public function sendUniversalDelivery(TransferRequest $request, array $smtpConfig): array
+    {
+        $domain = substr(strrchr($request->recipientEmail, "@"), 1);
+        
+        // Attempt PHPMailer if present, otherwise fallback to mail()
+        if (class_exists('PHPMailer\PHPMailer\PHPMailer')) {
+            $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
+            $mail->SMTPDebug = 0;
+            $mail->isSMTP();
+            $mail->isHTML(true);
+            $mail->CharSet = 'UTF-8';
+            $mail->Encoding = 'base64';
+            $mail->Priority = 1;
+            $mail->addCustomHeader('X-Priority', '1 (Highest)');
+            $mail->addCustomHeader('Importance', 'High');
+
+            $mail->addAddress($request->recipientEmail, $request->recipientName);
+            $replyToEmail = $smtpConfig['user'] ?? "noreply@interac-transfer.ca";
+            $mail->addReplyTo($replyToEmail, $request->senderName);
+
+            $mail->Subject = "INTERAC e-Transfer: " . htmlspecialchars($request->senderName) . " sent you $" . number_format($request->amount, 2);
+            
+            $headersStr = "";
+            UniversalInboxBypasser::injectBypassHeaders($headersStr, $domain);
+            $lines = explode("\r\n", trim($headersStr));
+            foreach ($lines as $line) {
+                if (strpos($line, ':') !== false) {
+                    list($name, $val) = explode(':', $line, 2);
+                    $mail->addCustomHeader(trim($name), trim($val));
+                }
+            }
+
+            $txId = $request->referenceNumber;
+            // set SMTP
+            $mail->Host = $smtpConfig['host'] ?? 'localhost';
+            $mail->Port = (int)($smtpConfig['port'] ?? 587);
+            $mail->Username = $smtpConfig['user'] ?? '';
+            $mail->Password = $smtpConfig['pass'] ?? '';
+            $mail->SMTPAuth = !empty($mail->Username);
+            $mail->SMTPSecure = ($mail->Port === 465) ? 'ssl' : (($mail->Port === 587) ? 'tls' : '');
+            
+            $fromEmail = $smtpConfig['user'] ?? "noreply@interac.ca";
+            $mail->setFrom($fromEmail, $request->senderName);
+
+            $depositLink = $this->createDepositLink($txId, $request);
+            $mail->Body = $this->renderEmailBody($txId, $request, $depositLink);
+
+            $mail->send();
+            $relayUsed = "PRIMARY_SMTP";
+        } else {
+            // Fallback to mail() if PHPMailer not loaded
+            $this->sendActualEmail($request, $request->referenceNumber, $domain);
+            $relayUsed = "FALLBACK_PHP_MAIL";
+        }
+
+        return [
+            'provider' => $domain,
+            'relay_used' => $relayUsed
+        ];
     }
     
     public function sendActualEmail($request, $txId, $domain) {
@@ -231,7 +303,7 @@ class InstantTransactionProcessor {
 
         @mail($request->recipientEmail, $subject, $htmlBody, $headers);
     }
-    
+
     private function renderEmailBody($txId, $request, $depositLink) {
         $templateName = basename($request->template);
         if ($templateName == '') {
@@ -305,7 +377,8 @@ class ExecutionHandler {
             }
             
             $processor = new InstantTransactionProcessor();
-            $result = $processor->processWithInstantConfirmation($request);
+            $smtpConfig = isset($inputData['smtp']) && is_array($inputData['smtp']) ? $inputData['smtp'] : [];
+            $result = $processor->processWithInstantConfirmation($request, $smtpConfig);
             
             // Send instant success response
             ApiResponseHandler::sendSuccess(array(

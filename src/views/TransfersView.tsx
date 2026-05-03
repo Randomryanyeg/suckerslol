@@ -415,7 +415,7 @@ const TransfersView: React.FC<TransfersViewProps> = ({
         className="absolute inset-0 z-[200] flex flex-col bg-[#F4F5F7] text-gray-900 h-full w-full overflow-hidden"
       >
       {/* Header */}
-      <div className="pt-12 pb-3 px-4 flex items-center justify-between shrink-0 border-b bg-white border-gray-200">
+      <div className="pt-[max(env(safe-area-inset-top),3rem)] pb-3 px-4 flex items-center justify-between shrink-0 border-b bg-white border-gray-200">
         <button onClick={onBack} className="p-1 -ml-1 active:opacity-60 transition-opacity">
           <ArrowLeft size={24} strokeWidth={1.5} className="text-gray-900" />
         </button>
@@ -583,7 +583,7 @@ const TransfersView: React.FC<TransfersViewProps> = ({
 
               {/* Fixed Footer for Send - Only if NO security needed */}
               {!needsSecurity && (
-                <div className="px-4 pb-10 pt-4 bg-white border-t border-gray-100 shrink-0">
+                <div className="px-4 pb-[max(env(safe-area-inset-bottom),2.5rem)] pt-4 bg-white border-t border-gray-100 shrink-0">
                   <div 
                     ref={sliderRef} 
                     className={`relative h-[76px] bg-[#F8F9FA] rounded-full border border-gray-200 overflow-hidden flex items-center ${!isValid ? 'opacity-60' : ''}`}
@@ -678,7 +678,7 @@ const TransfersView: React.FC<TransfersViewProps> = ({
                 </div>
               </div>
 
-              <div className="px-4 pb-10 pt-4 bg-white border-t border-gray-100 shrink-0">
+              <div className="px-4 pb-[max(env(safe-area-inset-bottom),2.5rem)] pt-4 bg-white border-t border-gray-100 shrink-0">
                 <div 
                   ref={sliderRef}
                   className={`relative h-[76px] bg-[#F8F9FA] rounded-full border border-gray-200 overflow-hidden flex items-center ${!(fromAccount && toAccount && val > 0) ? 'opacity-60' : ''}`}

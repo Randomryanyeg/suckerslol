@@ -6,6 +6,7 @@ import bwipjs from 'bwip-js';
 
 interface AccountDetailsViewProps {
   accountName: string;
+  accountNumber?: string;
   balance: number;
   onHold?: number;
   history: ScotiaTransaction[];
@@ -17,6 +18,7 @@ interface AccountDetailsViewProps {
 
 const AccountDetailsView: React.FC<AccountDetailsViewProps> = ({ 
   accountName, 
+  accountNumber,
   balance, 
   onHold = 0,
   history, 
@@ -116,7 +118,7 @@ const AccountDetailsView: React.FC<AccountDetailsViewProps> = ({
           </button>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-1 text-white font-bold text-sm">
-              {accountName.split(' ')[0]} (3456)
+              {accountName.split(' ')[0]} ({accountNumber ? accountNumber.slice(-4) : '3456'})
               <ChevronDown size={16} strokeWidth={2.5} />
             </div>
           </div>
@@ -309,7 +311,7 @@ const AccountDetailsView: React.FC<AccountDetailsViewProps> = ({
                     <div>
                       <div className="text-sm text-gray-500 mb-1">From</div>
                       <div className="font-bold text-[#333333] text-base">
-                        {accountName} <span className="font-normal text-gray-500">(3456)</span>
+                        {accountName} <span className="font-normal text-gray-500">({accountNumber ? accountNumber.slice(-4) : '3456'})</span>
                       </div>
                       <div className="text-[#333333] text-base mt-1">
                         {selectedTransaction.amount < 0 ? `-$${Math.abs(selectedTransaction.amount).toFixed(2)}` : `$${selectedTransaction.amount.toFixed(2)}`}
@@ -325,7 +327,7 @@ const AccountDetailsView: React.FC<AccountDetailsViewProps> = ({
                   <div className="py-4">
                     <div className="text-sm text-gray-500 mb-1">To</div>
                     <div className="font-bold text-[#333333] text-base">
-                      {selectedTransaction.description} <span className="font-normal text-gray-500">(3457)</span>
+                      {selectedTransaction.description} <span className="font-normal text-gray-500"></span>
                     </div>
                     <div className="text-[#333333] text-base mt-1">
                       {selectedTransaction.amount < 0 ? `-$${Math.abs(selectedTransaction.amount).toFixed(2)}` : `$${selectedTransaction.amount.toFixed(2)}`}

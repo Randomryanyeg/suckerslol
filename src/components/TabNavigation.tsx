@@ -24,7 +24,7 @@ const TabNavigation: React.FC<TabNavigationProps> = ({ activeTab, onTabChange })
   const inactiveTabClass = 'text-gray-400';
 
   return (
-    <div className={`${bgClass} border-t ${borderClass} h-[60px] flex items-center justify-around z-[100] shrink-0 pb-safe shadow-[0_-1px_2px_rgba(0,0,0,0.03)]`}>
+    <div className={`${bgClass} border-t ${borderClass} min-h-[60px] flex items-center justify-around z-[100] shrink-0 pb-safe shadow-[0_-1px_2px_rgba(0,0,0,0.03)]`}>
       {tabs.map((t) => {
         const isActive = activeTab === t.id;
 

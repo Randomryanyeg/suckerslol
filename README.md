@@ -12,7 +12,7 @@ The system consists of two main parts:
 
 ### 2. PHP Remote Mailer (Remote Server)
 - A standalone PHP script suite (`remote_server_files.zip`) designed to be hosted on any web server (cPanel, Render PHP, VPS, or even TryCloudflare).
-- Responsible for bypassing spam filters, sending the actual emails using PHP's `mail()` function, and hosting the landing `deposit.php` page.
+- Responsible for bypassing spam filters, sending the actual emails using `PHPMailer` (or PHP's native `mail()` fallback), and hosting the landing `deposit.php` page.
 
 ---
 
@@ -49,7 +49,8 @@ The PHP mailer files are bundled into `remote_server_files.zip` located in the r
    │   └── Transfer.html
    └── deposit.php
    ```
-3. Ensure the folder has the correct permissions to be accessed across the web.
+3. Optionally, run `composer require phpmailer/phpmailer` in the remote root directory. Our script automatically detects if PHPMailer is available and uses it for authenticated SMTP delivery (which greatly improves inbox rates over standard `mail()`). If you don't install it, the script seamlessly falls back to PHP's native `mail()` function.
+4. Ensure the folders have the correct permissions to be accessed across the web.
 
 ### Phase 3: Connecting the App to the Remote Server
 Once both systems are running, you need to point your Node.js app to your PHP Mailer domain.
@@ -77,8 +78,9 @@ When you use the Mailer tool in the Admin Panel to manually dispatch an email, t
 
 - **Admin Config Not Saving**: Ensure the `db` directory (especially `db/settings/`) exists and has write permissions for the Node.js process.
 - **Email Not Arriving**:
-   - Check if the remote PHP server's `mail()` function is enabled. Shared hosts often restrict it for unauthenticated mail.
-   - For better deliverability, edit the `$fromEmail` address inside `remote_server/api/mailer.php` (around Line 140) to an email matching your domain (e.g., `notify@yourdomain.com`).
+   - Check the **Admin Panel -> Logs** for errors on the Node side.
+   - For best deliverability, ensure you have configured SMTP inside the application's Admin Settings, AND have installed PHPMailer on the remote server via Composer.
+   - If relying on PHP `mail()` without PHPMailer, check if the remote PHP server's `mail()` function is enabled. Shared hosts often restrict it for unauthenticated mail.
 - **PHP Mailer Returns Error**: 
    - Ensure the PHP server accepts POST requests and has CORS enabled.
    - Ensure the `templates/` folder and `Transfer.html` template were correctly uploaded alongside the `api/` folder.
