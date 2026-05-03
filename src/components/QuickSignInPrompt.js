@@ -1,0 +1,7 @@
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { ScotiaLogoSVG } from './ScotiaIcons';
+import { Check } from 'lucide-react';
+const QuickSignInPrompt = ({ onYes, onNo }) => {
+    return (_jsxs("div", { className: "flex flex-col bg-white p-8 pt-16 h-full font-sans justify-between", children: [_jsxs("div", { className: "flex justify-between items-start", children: [_jsx(ScotiaLogoSVG, { color: "#ED0711", className: "w-12 h-12" }), _jsx("div", { className: "w-20 h-20 border-2 border-gray-200 rounded-2xl flex items-center justify-center", children: _jsx(Check, { size: 40, className: "text-[#ED0711]" }) })] }), _jsxs("div", { className: "flex-1 flex flex-col justify-center", children: [_jsx("h2", { className: "text-2xl font-bold text-gray-900 mb-4", children: "Quick sign in" }), _jsx("p", { className: "text-lg text-gray-600", children: "Remember my card number or username each time I sign in?" })] }), _jsxs("div", { className: "flex flex-col gap-4", children: [_jsxs("button", { onClick: onYes, className: "w-full py-4 bg-[#ED0711] text-white rounded-xl font-bold text-lg flex items-center justify-between px-6", children: ["Yes, remember me", _jsx(Check, { size: 24 })] }), _jsx("button", { onClick: onNo, className: "w-full py-4 bg-white text-[#ED0711] border-2 border-[#ED0711] rounded-xl font-bold text-lg", children: "No thanks" })] })] }));
+};
+export default QuickSignInPrompt;

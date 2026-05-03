@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Scotiabank - Offline</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #F8F9FA;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            text-align: center;
+            color: #1A1A1A;
+        }
+        .container {
+            padding: 20px;
+            max-width: 400px;
+        }
+        .logo {
+            width: 180px;
+            margin-bottom: 40px;
+        }
+        .icon {
+            width: 80px;
+            height: 80px;
+            background: #ED0711;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 24px;
+            box-shadow: 0 10px 20px rgba(237, 7, 17, 0.2);
+        }
+        .icon svg {
+            width: 40px;
+            height: 40px;
+            color: white;
+        }
+        h1 {
+            font-size: 24px;
+            font-weight: 800;
+            margin-bottom: 12px;
+            letter-spacing: -0.5px;
+        }
+        p {
+            font-size: 16px;
+            color: #666;
+            line-height: 1.5;
+            margin-bottom: 32px;
+        }
+        .btn {
+            background: #ED0711;
+            color: white;
+            border: none;
+            padding: 16px 32px;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            width: 100%;
+            transition: transform 0.2s;
+        }
+        .btn:active {
+            transform: scale(0.98);
+        }
+        .status {
+            margin-top: 24px;
+            font-size: 12px;
+            color: #999;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <img src="https://www.scotiabank.com/content/dam/scotiabank/canada/en/images/logos/scotiabank-logo.svg" alt="Scotiabank" class="logo">
+        
+        <div class="icon">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="1" y1="1" x2="23" y2="23"></line>
+                <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"></path>
+                <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"></path>
+                <path d="M10.71 5.05A16 16 0 0 1 22.58 9"></path>
+                <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"></path>
+                <path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path>
+                <line x1="12" y1="20" x2="12.01" y2="20"></line>
+            </svg>
+        </div>
+
+        <h1>Connection Lost</h1>
+        <p>You're currently offline or our servers are temporarily unavailable. Please check your internet connection and try again.</p>
+        
+        <button class="btn" onclick="window.location.reload()">Retry Connection</button>
+        
+        <div class="status">Error Code: OFFLINE_MODE</div>
+    </div>
+</body>
+</html>

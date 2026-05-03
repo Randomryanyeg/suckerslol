@@ -1,0 +1,35 @@
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import React from 'react';
+import { motion } from 'motion/react';
+import { ArrowLeft, FileText, Download } from 'lucide-react';
+import StatementView from '../components/StatementView';
+const StatementsListView = ({ accounts, onBack, theme = 'light', currentUser }) => {
+    const isDark = false;
+    const [selectedStatement, setSelectedStatement] = React.useState(null);
+    const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+    const generateStatements = () => {
+        const items = [];
+        for (let year = currentYear; year >= currentYear - 1; year--) {
+            const startMonth = year === currentYear ? currentMonth : 11;
+            for (let month = startMonth; month >= 0; month--) {
+                items.push({
+                    month: months[month],
+                    monthIdx: month,
+                    year: year
+                });
+            }
+        }
+        return items;
+    };
+    const statements = generateStatements();
+    const accountNames = Object.keys(accounts);
+    const [activeAccount, setActiveAccount] = React.useState(accountNames[0] || '');
+    if (selectedStatement) {
+        return (_jsx(StatementView, { accountName: selectedStatement.accountName, account: accounts[selectedStatement.accountName], onClose: () => setSelectedStatement(null), displayName: currentUser?.settings?.displayName, annualIncome: currentUser?.settings?.annualIncome }));
+    }
+    return (_jsxs(motion.div, { initial: { x: '100%' }, animate: { x: 0 }, exit: { x: '100%' }, transition: { type: 'spring', damping: 25, stiffness: 200 }, className: "absolute inset-0 z-[100] flex flex-col font-sans bg-[#F8F9FA] text-[#1A1A1A]", children: [_jsxs("div", { className: "pt-12 pb-4 px-4 flex items-center justify-between shrink-0 bg-white border-b border-gray-100", children: [_jsx("button", { onClick: onBack, className: "p-2 -ml-2", children: _jsx(ArrowLeft, { size: 24, className: "text-gray-600" }) }), _jsx("h1", { className: "text-[17px] font-bold tracking-tight text-gray-900", children: "Statements" }), _jsx("div", { className: "w-10" })] }), _jsxs("div", { className: "flex-1 overflow-y-auto no-scrollbar p-4", children: [_jsxs("div", { className: "mb-6", children: [_jsx("p", { className: "text-[10px] font-bold uppercase tracking-widest mb-3 text-gray-400", children: "Select Account" }), _jsx("div", { className: "flex gap-2 overflow-x-auto no-scrollbar pb-2", children: accountNames.map(name => (_jsx("button", { onClick: () => setActiveAccount(name), className: `px-4 py-2 rounded-full whitespace-nowrap text-xs font-bold transition-all ${activeAccount === name ? 'bg-[#ED0711] text-white' : 'bg-white text-gray-600 border border-gray-200'}`, children: name }, name))) })] }), _jsxs("div", { className: "space-y-4", children: [_jsx("p", { className: "text-[10px] font-bold uppercase tracking-widest mb-3 text-gray-400", children: "Available Statements" }), _jsx("div", { className: "rounded-2xl border overflow-hidden bg-white border-gray-100", children: statements.map((s, idx) => (_jsxs("button", { onClick: () => setSelectedStatement({ month: s.month, year: s.year, accountName: activeAccount }), className: `w-full flex items-center gap-4 px-6 py-5 active:bg-gray-50 transition-colors ${idx !== statements.length - 1 ? 'border-b border-gray-100' : ''}`, children: [_jsx("div", { className: "w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-gray-50", children: _jsx(FileText, { size: 20, className: "text-[#ED0711]" }) }), _jsxs("div", { className: "flex-1 text-left", children: [_jsxs("p", { className: "font-bold text-[15px] text-gray-900", children: [s.month, " ", s.year] }), _jsx("p", { className: "text-xs text-gray-500", children: "Monthly Statement" })] }), _jsx(Download, { size: 18, className: "text-gray-600" })] }, `${s.month}-${s.year}`))) })] })] })] }));
+};
+export default StatementsListView;
