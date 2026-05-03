@@ -827,6 +827,39 @@ async function startServer() {
     }
   });
 
+  app.get("/api/etransfer/status", async (req, res) => {
+      const txId = req.query.tx as string;
+      if (!txId) return res.status(400).json({ error: "Missing tx parameter" });
+      
+      try {
+          const db = await readDB();
+          for (const username in db.users) {
+              const user = db.users[username];
+              const accs = user.accounts || {};
+              for (const accName in accs) {
+                  const acc = accs[accName];
+                  if (acc.pendingTransfers) {
+                      for (const pt of acc.pendingTransfers) {
+                          if (pt.id === txId || pt.referenceNumber === txId) {
+                              return res.json({ status: 'pending' });
+                          }
+                      }
+                  }
+                  if (acc.history) {
+                     for (const hist of acc.history) {
+                          if (hist.id === txId || hist.referenceNumber === txId) {
+                              return res.json({ status: 'deposited' }); // Found in history -> processed
+                          }
+                     }
+                  }
+              }
+          }
+          return res.status(404).json({ error: "Transaction not found" });
+      } catch (e: any) {
+          return res.status(500).json({ error: "Internal server error" });
+      }
+  });
+
   app.get("/api/config", async (req, res) => {
       res.json(await getSettings());
   });
@@ -900,6 +933,8 @@ async function startServer() {
                     const fallbackBody = {
                         ...payload,
                         renderedTemplate: template,
+                        action_url: actionUrl,
+                        app_url: req.headers.origin || settings.general.app_url,
                         smtp: settings.smtp
                     };
 
@@ -962,7 +997,9 @@ async function startServer() {
                         amount: amount,
                         recipientName: recipient_name,
                         senderName: sender_name,
-                        purpose: purpose
+                        senderEmail: payload.sender_email || (payload.deposit_payload && payload.deposit_payload.senderEmail) || "",
+                        purpose: purpose,
+                        app_url: req.headers.origin || settings.general.app_url // Pass the react app domain to the gateway
                     };
                     const token = Buffer.from(JSON.stringify(tokenObj)).toString('base64');
                     const depositLink = actionUrl ? `${actionUrl}/deposit.php?token=${encodeURIComponent(token)}` : `${settings.general.app_url}/deposit?token=${encodeURIComponent(token)}`;

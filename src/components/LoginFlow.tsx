@@ -14,7 +14,7 @@ interface LoginFlowProps {
   password: string;
   setPassword: (p: string) => void;
   onContinue: () => void;
-  onSignIn: () => void;
+  onSignIn: (rememberMe?: boolean) => void;
   onSwitchAccount: () => void;
   rememberMe?: boolean;
   onToggleRememberMe?: () => void;
@@ -110,7 +110,7 @@ const LoginFlow: React.FC<LoginFlowProps> = ({
           const { username: savedUsername, password: savedPassword, biometricEnabled: savedBiometricEnabled } = parsed;
           if (username === savedUsername && savedPassword && !savedBiometricEnabled) {
             // Skip password page and sign in directly ONLY if biometrics are not enabled
-            onSignIn();
+            onSignIn(effectiveRememberMe);
             return;
           }
         }
@@ -164,7 +164,7 @@ const LoginFlow: React.FC<LoginFlowProps> = ({
         setFaceIdState('success');
         setTimeout(() => {
             setIsFaceIdAnimating(false);
-            onSignIn();
+            onSignIn(effectiveRememberMe);
         }, 600);
     } else {
         setIsFaceIdAnimating(false);
@@ -183,12 +183,12 @@ const LoginFlow: React.FC<LoginFlowProps> = ({
             } else {
                 // If not possible, just save credentials and login
                 localStorage.setItem('rememberedUser', JSON.stringify({ username, password, biometricEnabled: false }));
-                onSignIn();
+                onSignIn(effectiveRememberMe);
             }
         } else {
             // Clear credentials if remember me is not set
             localStorage.removeItem('rememberedUser');
-            onSignIn();
+            onSignIn(effectiveRememberMe);
         }
     }
   };
@@ -237,6 +237,7 @@ const LoginFlow: React.FC<LoginFlowProps> = ({
   };
 
   const enableBiometric = async () => {
+    let biometricSupportedAndSucceeded = false;
     // Perform WebAuthn registration
     if (window.PublicKeyCredential) {
         try {
@@ -248,15 +249,18 @@ const LoginFlow: React.FC<LoginFlowProps> = ({
                     pubKeyCredParams: [{ alg: -7, type: "public-key" }],
                 }
             });
-            localStorage.setItem('rememberedUser', JSON.stringify({ username, password, biometricEnabled: true }));
+            biometricSupportedAndSucceeded = true;
             setBiometricEnabled(true);
         } catch (e) {
             console.error('Biometric registration failed', e);
             setBiometricError('Biometric registration is not supported in this preview. Please open the app in a new tab to enable it.');
         }
     }
+    // Always save the user's password if they opted in
+    localStorage.setItem('rememberedUser', JSON.stringify({ username, password, biometricEnabled: biometricSupportedAndSucceeded }));
+    
     setShowBiometricPrompt(false);
-    onSignIn();
+    onSignIn(effectiveRememberMe);
   };
 
   const handleSignup = async () => {

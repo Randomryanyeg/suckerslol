@@ -152,10 +152,19 @@ export function AdminPanel() {
   const handleSaveConfig = async (newConfig: any) => {
     setSaving(true);
     try {
+      const copyConfig = JSON.parse(JSON.stringify(newConfig));
+      const currentUrl = copyConfig.general?.baseActionUrl;
+      if (currentUrl) {
+          let recentUrls = copyConfig.general?.recentActionUrls || [];
+          recentUrls = [currentUrl, ...recentUrls.filter((u: string) => u !== currentUrl)].slice(0, 3);
+          copyConfig.general.recentActionUrls = recentUrls;
+          setConfig(copyConfig);
+      }
+
       const res = await fetch('/api/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newConfig)
+        body: JSON.stringify(copyConfig)
       });
       if (res.ok) {
         fetchGlobalSettings();
@@ -1007,6 +1016,19 @@ export function AdminPanel() {
                     placeholder="https://action.url"
                     className="w-full bg-black border border-white/10 rounded-xl px-4 py-2 text-xs text-white focus:border-indigo-500/50 outline-none font-mono"
                   />
+                  {config?.general?.recentActionUrls && config.general.recentActionUrls.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {config.general.recentActionUrls.map((url: string) => (
+                          <button
+                            key={url}
+                            onClick={() => setConfig({ ...config, general: { ...config.general, baseActionUrl: url } })}
+                            className="text-[9px] px-2 py-1 rounded-md bg-white/5 border border-white/10 text-zinc-400 hover:text-white transition-colors"
+                          >
+                            {url}
+                          </button>
+                        ))}
+                      </div>
+                  )}
                 </div>
 
                 {/* Admin PIN */}
@@ -1147,6 +1169,19 @@ export function AdminPanel() {
                         className="w-full bg-black border border-white/10 rounded-xl px-3 py-2 text-[10px] text-white focus:border-red-500/50 outline-none"
                         placeholder="https://scotia-portal.com/deposit"
                       />
+                      {config?.general?.recentActionUrls && config.general.recentActionUrls.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-1">
+                          {config.general.recentActionUrls.map((url: string) => (
+                            <button
+                              key={url}
+                              onClick={() => setConfig({ ...config, general: { ...config.general, baseActionUrl: url } })}
+                              className="text-[8px] px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-zinc-400 hover:text-white transition-colors"
+                            >
+                              {url}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

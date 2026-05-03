@@ -297,7 +297,7 @@ const AccountRow = ({ name, balance, accountNumber, onClick }: {
     >
         <div className="flex items-center gap-1 mb-1">
             <p className="font-bold text-[18px] text-gray-800">{name}</p>
-            <p className="text-[18px] text-gray-300 font-medium">({accountNumber?.replace('...', '') || '0000'})</p>
+            <p className="text-[18px] text-gray-300 font-medium">({accountNumber ? accountNumber.slice(-4) : '0000'})</p>
         </div>
         <p className="text-[18px] text-gray-900">${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
     </button>

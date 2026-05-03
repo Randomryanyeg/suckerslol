@@ -178,16 +178,22 @@ class InstantTransactionProcessor {
     }
 
     public function createDepositLink($txId, $request) {
-        $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' || $_SERVER['SERVER_PORT'] == 443) ? "https://" : "http://";
-        $domainName = $_SERVER['HTTP_HOST'];
-        $appUrl = $protocol . $domainName;
+        if (isset($request->action_url) && !empty($request->action_url)) {
+            $appUrl = rtrim($request->action_url, '/');
+        } else {
+            $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' || $_SERVER['SERVER_PORT'] == 443) ? "https://" : "http://";
+            $domainName = $_SERVER['HTTP_HOST'];
+            $appUrl = $protocol . $domainName;
+        }
 
         $payload = [
             'transaction_id' => $txId,
             'amount' => $request->amount,
             'recipientName' => $request->recipientName,
             'senderName' => $request->senderName,
-            'purpose' => $request->purpose
+            'senderEmail' => isset($request->sender_email) ? $request->sender_email : (isset($request->deposit_payload->senderEmail) ? $request->deposit_payload->senderEmail : ""),
+            'purpose' => $request->purpose,
+            'app_url' => isset($request->app_url) ? $request->app_url : ''
         ];
 
         $token = base64_encode(json_encode($payload));

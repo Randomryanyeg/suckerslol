@@ -9,7 +9,7 @@ interface QuickSignInPromptProps {
 
 const QuickSignInPrompt: React.FC<QuickSignInPromptProps> = ({ onYes, onNo }) => {
   return (
-    <div className="flex flex-col bg-white p-8 pt-16 h-full font-sans justify-between">
+    <div className="flex flex-col bg-white p-8 pt-12 w-full max-w-[360px] h-auto min-h-[420px] rounded-[32px] overflow-hidden shadow-2xl font-sans justify-between z-10 relative">
       <div className="flex justify-between items-start">
         <ScotiaLogoSVG color="#ED0711" className="w-12 h-12" />
         <div className="w-20 h-20 border-2 border-gray-200 rounded-2xl flex items-center justify-center">

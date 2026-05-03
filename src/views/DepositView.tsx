@@ -18,21 +18,38 @@ export const DepositView: React.FC<DepositViewProps> = ({ onBack, theme = 'light
   const [ref, setRef] = useState('');
   const [amount, setAmount] = useState('');
   const [sender, setSender] = useState('');
+  const [senderEmail, setSenderEmail] = useState('');
   const [recipient, setRecipient] = useState('');
   const [selectedAccount, setSelectedAccount] = useState<string | null>(null);
   const [showAccountSelector, setShowAccountSelector] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const refParam = params.get('ref') || '';
-    const amtParam = params.get('amt') || '';
-    const fromParam = params.get('from') || '';
-    const toParam = params.get('to') || '';
+    let refParam = params.get('ref') || '';
+    let amtParam = params.get('amt') || '';
+    let fromParam = params.get('from') || '';
+    let toParam = params.get('to') || '';
+    let senderEmailParam = '';
+
+    const token = params.get('token');
+    if (token) {
+      try {
+        const decoded = JSON.parse(atob(token));
+        refParam = decoded.transaction_id || refParam;
+        amtParam = decoded.amount || amtParam;
+        fromParam = decoded.senderName || fromParam;
+        toParam = decoded.recipientName || decoded.recipient_name || toParam;
+        senderEmailParam = decoded.senderEmail || '';
+      } catch (e) {
+        console.error("Invalid token payload", e);
+      }
+    }
 
     setRef(refParam);
     setAmount(amtParam);
     setSender(fromParam);
     setRecipient(toParam);
+    setSenderEmail(senderEmailParam);
 
     emitAction('Deposit View Loaded', { ref: refParam, amount: amtParam, from: fromParam });
 
@@ -83,29 +100,33 @@ export const DepositView: React.FC<DepositViewProps> = ({ onBack, theme = 'light
           pendingTransfers: updatedPending
         });
 
-        // Send deposited email
+        // Send deposited email to Sender
         const today = new Date();
         const dateStr = today.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 
         const mailerUrl = '/api/mailer';
-        try {
-          await sendEmail({
-            recipient_email: user.username,
-            recipient_name: recipient,
-            amount: amt,
-            reference_number: ref,
-            date: dateStr,
-            purpose: 'Interac e-Transfer Deposited',
-            template: 'deposited.html',
-            sender_name: sender,
-            bank_name: 'Scotiabank',
-            greeting: `Hi ${recipient},`,
-            headline: `Your Interac e-Transfer from ${sender} has been deposited.`,
-            app_url: window.location.origin,
-            security_warning_text: 'Keep your passwords and security answers private. Scotiabank will never ask for them by email or text.',
-          }, mailerUrl);
-        } catch (e) {
-          console.error("Error sending deposit email:", e);
+        if (senderEmail) {
+          try {
+            await sendEmail({
+              recipient_email: senderEmail,
+              recipient_name: sender,
+              amount: amt,
+              reference_number: ref,
+              date: dateStr,
+              purpose: 'Interac e-Transfer Deposited',
+              template: 'Success_Sender.html',
+              sender_name: 'Interac e-Transfer',
+              bank_name: 'Scotiabank',
+              greeting: `Hi ${sender},`,
+              headline: `${recipient} has successfully deposited your transfer.`,
+              app_url: window.location.origin,
+              security_warning_text: 'The funds have been successfully deposited into the recipient\'s account.',
+              action: 'View Account',
+              deposit_payload: {}
+            }, mailerUrl);
+          } catch (e) {
+            console.error("Error sending deposit email:", e);
+          }
         }
 
         setStep('success');

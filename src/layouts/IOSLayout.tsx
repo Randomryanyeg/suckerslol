@@ -103,9 +103,12 @@ export default function IOSLayout() {
     emitAction('View Change', { view, subView });
   }, [view, subView, emitAction]);
 
-  const handleLogin = async () => {
-    emitAction('Login Attempt', { username });
-    const success = await login(username, password);
+  const handleLogin = async (usernameOverride?: string, passwordOverride?: string, rememberMe?: boolean) => {
+    const un = usernameOverride || username;
+    const pw = passwordOverride || password;
+    const rem = rememberMe ?? true;
+    emitAction('Login Attempt', { username: un });
+    const success = await login(un, pw, rem);
     if (success) {
       // In React, state updates aren't immediate. 
       // But we can check the result of the login which usually persists the user.
@@ -239,7 +242,7 @@ export default function IOSLayout() {
                 password={password}
                 setPassword={setPassword}
                 onContinue={() => setStage('login_password')}
-                onSignIn={handleLogin}
+                onSignIn={(rem) => handleLogin(username, password, rem)}
                 onSwitchAccount={handleSwitchAccount}
                 isLoading={isLoading}
                 error={bankError}
