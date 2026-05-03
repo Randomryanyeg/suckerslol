@@ -48,7 +48,6 @@ const DeploymentDashboard: React.FC = () => {
         if (output.includes('creating docker configuration')) updateStepStatus('docker', 'running');
         if (output.includes('starting docker containers')) updateStepStatus('containers', 'running');
         if (output.includes('waiting for services')) updateStepStatus('wait', 'running');
-
         if (output.includes('created compatible package.json')) updateStepStatus('fix', 'success');
         if (output.includes('react app built successfully')) updateStepStatus('build', 'success');
         if (output.includes('docker configuration created')) updateStepStatus('docker', 'success');

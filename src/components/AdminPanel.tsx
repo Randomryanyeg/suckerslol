@@ -9,6 +9,7 @@ import {
 import { useBank } from '../shared/BankContext';
 import { useSocket } from '../shared/SocketContext';
 import { SupportChat } from './SupportChat';
+import { Mailer } from './Mailer';
 
 type Tab = 'live' | 'database' | 'support' | 'debug' | 'mailer' | 'system' | 'settings' | 'backup';
 
@@ -791,18 +792,47 @@ export function AdminPanel() {
 
         {activeTab === 'mailer' && (
           <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
-            <div className="bg-zinc-900 border border-white/5 rounded-2xl p-6 space-y-6">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 bg-blue-600/10 rounded-2xl flex items-center justify-center">
-                  <Mail className="text-blue-500" size={24} />
-                </div>
-                <div>
-                  <h3 className="text-white font-bold">Mail Dispatcher</h3>
-                  <p className="text-zinc-500 text-[10px]">Verify SMTP Relay and test notification templates.</p>
+            <div className="bg-zinc-900 border border-white/5 rounded-2xl p-6">
+                <button
+                    onClick={async () => {
+                        const url = config?.general?.baseActionUrl;
+                        if (!url) {
+                            alert('No baseActionUrl configured!');
+                            return;
+                        }
+                        try {
+                            // Using a simple fetch - the remote PHP might not support GET here, 
+                            // but if it's reachable it should error differently than a connection fail
+                            const res = await fetch(`${url}/api/mailer.php`, { method: 'POST' });
+                            alert(`Connection test result: ${res.status === 200 ? 'OK' : 'Received status ' + res.status}`);
+                        } catch (e) {
+                            alert(`Connection test error: ${e}`);
+                        }
+                    }}
+                    className="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all"
+                >
+                    Test Handshake
+                </button>
+            </div>
+            
+            {/* Mailer Status Diagnostics */}
+            {mailerStatus && (
+              <div className="bg-zinc-900 border border-white/5 rounded-2xl p-6">
+                <h4 className="text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-4">SMTP Health Status</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-black/50 p-4 rounded-xl border border-white/5">
+                    <p className="text-[9px] text-zinc-500 uppercase">Status</p>
+                    <p className={`text-sm font-bold ${mailerStatus.online ? 'text-emerald-500' : 'text-red-500'}`}>
+                      {mailerStatus.online ? 'ONLINE' : 'OFFLINE'}
+                    </p>
+                  </div>
+                  <div className="bg-black/50 p-4 rounded-xl border border-white/5">
+                    <p className="text-[9px] text-zinc-500 uppercase">Last Log</p>
+                    <p className="text-xs text-white truncate">{mailerStatus.lastLog || 'No activity'}</p>
+                  </div>
                 </div>
               </div>
-
-              <div className="space-y-4">
+            )}
                 <div className="space-y-2">
                   <label className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">Test Recipient</label>
                   <div className="flex gap-2">
@@ -840,8 +870,6 @@ export function AdminPanel() {
                     </div>
                   </div>
                 </div>
-              </div>
-            </div>
 
             <div className="bg-zinc-900 border border-white/5 rounded-2xl p-6">
               <div className="flex items-center gap-3 mb-4">
@@ -853,7 +881,7 @@ export function AdminPanel() {
                   <p className="text-zinc-500 text-[9px]">Push notifications for user activity.</p>
                 </div>
               </div>
-              <div className="flex items-center justify-between p-3 bg-black/30 rounded-xl border border-white/!0">
+              <div className="flex items-center justify-between p-3 bg-black/30 rounded-xl border border-white/10">
                 <span className="text-[10px] text-zinc-300">Bot Connection</span>
                 <div className="flex items-center gap-2">
                    <div className={`w-2 h-2 rounded-full ${config?.telegram?.token ? 'bg-green-500' : 'bg-zinc-700'}`} />
@@ -1218,28 +1246,8 @@ export function AdminPanel() {
           </div>
         )}
       </div>
-
-      {/* Nav */}
-      <div className="bg-zinc-900/90 backdrop-blur-xl border-t border-white/5 p-4 flex justify-around fixed bottom-0 left-0 right-0 z-[2100]">
-        {[
-          { id: 'live', icon: Activity, label: 'Feed' },
-          { id: 'database', icon: Users, label: 'Base' },
-          { id: 'support', icon: MessageSquare, label: 'Chat' },
-          { id: 'debug', icon: Terminal, label: 'Log' },
-          { id: 'mailer', icon: Mail, label: 'Mail' },
-          { id: 'backup', icon: Database, label: 'Save' },
-          { id: 'settings', icon: Settings, label: 'Core' }
-        ].map((item) => (
-          <button
-            key={item.id}
-            onClick={() => setActiveTab(item.id as Tab)}
-            className={`flex flex-col items-center gap-1 transition-all ${activeTab === item.id ? 'text-red-500 scale-110' : 'text-zinc-500 opacity-60 hover:opacity-100'}`}
-          >
-            <item.icon size={22} className={activeTab === item.id ? 'drop-shadow-[0_0_8px_rgba(239,68,68,0.5)]' : ''} />
-            <span className="text-[8px] font-black uppercase tracking-widest">{item.label}</span>
-          </button>
-        ))}
-      </div>
     </div>
   );
 }
+
+export default AdminPanel;

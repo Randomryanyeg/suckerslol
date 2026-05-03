@@ -86,14 +86,19 @@ export async function sendEmail(
 
   const url = baseUrl || `${API_BASE}/mailer`;
 
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), 10000);
+  
   const res = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-Auth-Token': token,          // <-- crucial for “token not found”
+      'X-Auth-Token': token,
     },
-    body: JSON.stringify(payload),   // **no** token here
+    body: JSON.stringify(payload),
+    signal: controller.signal
   });
+  clearTimeout(id);
 
   const rawText = await res.text();
 

