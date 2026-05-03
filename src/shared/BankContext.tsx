@@ -93,10 +93,29 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setTheme(prev => prev === 'light' ? 'dark' : 'light');
   }, []);
 
-  const handleError = useCallback((msg: string, err: unknown) => {
+  const handleError = useCallback(async (msg: string, err: unknown) => {
     console.error(msg, err);
     setError(msg);
-  }, []);
+    
+    // Log to server for admin debugging
+    try {
+      await fetch('/api/admin/debug-logs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: msg,
+          type: 'error',
+          context: {
+            error: err instanceof Error ? err.message : String(err),
+            user: user?.username || 'Guest',
+            url: window.location.pathname
+          }
+        })
+      });
+    } catch (e) {
+      console.warn("Failed to report error to admin console", e);
+    }
+  }, [user]);
 
   const toggleAdminPanel = useCallback(() => {
     setIsAdminPanelVisible(prev => !prev);

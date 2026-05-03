@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ChevronDown, ArrowLeft, CheckCircle2, Shield, Landmark } from 'lucide-react';
+import { ChevronDown, ArrowLeft, CheckCircle2, Shield, Landmark, XCircle } from 'lucide-react';
 import { useBank } from '../shared/BankContext';
 import { ScotiaAccountMap } from '../shared/types';
 import { sendEmail } from '../shared/services/emailRelay';
@@ -14,7 +14,7 @@ interface DepositViewProps {
 export const DepositView: React.FC<DepositViewProps> = ({ onBack, theme = 'light' }) => {
   const { user, updateAccount, updateUser } = useBank();
   const { emitAction } = useSocket();
-  const [step, setStep] = useState<'loading' | 'input' | 'processing' | 'success'>('loading');
+  const [step, setStep] = useState<'loading' | 'input' | 'processing' | 'success' | 'error'>('loading');
   const [ref, setRef] = useState('');
   const [amount, setAmount] = useState('');
   const [sender, setSender] = useState('');
@@ -50,66 +50,95 @@ export const DepositView: React.FC<DepositViewProps> = ({ onBack, theme = 'light
     emitAction('Deposit Button Clicked', { account: selectedAccount, amount });
     setStep('processing');
 
-    // Simulate network delay
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    try {
+      // Simulate network delay
+      await new Promise(resolve => setTimeout(resolve, 2000));
 
-    const amt = parseFloat(amount);
-    const account = user.accounts[selectedAccount];
-    
-    if (account) {
-      const transaction = {
-        id: `DEP-${Date.now()}`,
-        date: new Date().toISOString(),
-        description: `Interac e-Transfer Deposit from ${sender}`,
-        amount: amt,
-        status: 'Completed' as const,
-        category: 'Deposit' as const
-      };
-
-      const updatedAccounts = { ...user.accounts };
-      updatedAccounts[selectedAccount] = {
-        ...account,
-        balance: account.balance + amt,
-        history: [...account.history, transaction]
-      };
-
-      // Remove from pending if it exists
-      const pendingTransfers = user.pendingTransfers || [];
-      const updatedPending = pendingTransfers.filter(t => t.id !== ref && t.amount !== amt);
-
-      await updateUser({
-        accounts: updatedAccounts,
-        pendingTransfers: updatedPending
-      });
-
-      // Send deposited email
-      const today = new Date();
-      const dateStr = today.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-
-      const mailerUrl = '/api/mailer';
-      try {
-        await sendEmail({
-          recipient_email: user.username,
-          recipient_name: recipient,
+      const amt = parseFloat(amount);
+      const account = user.accounts[selectedAccount];
+      
+      if (account) {
+        const transaction = {
+          id: `DEP-${Date.now()}`,
+          date: new Date().toISOString(),
+          description: `Interac e-Transfer Deposit from ${sender}`,
           amount: amt,
-          reference_number: ref,
-          date: dateStr,
-          purpose: 'Interac e-Transfer Deposited',
-          template: 'deposited.html',
-          sender_name: sender,
-          bank_name: 'Scotiabank',
-          greeting: `Hi ${recipient},`,
-          headline: `Your Interac e-Transfer from ${sender} has been deposited.`,
-          app_url: window.location.origin,
-          security_warning_text: 'Keep your passwords and security answers private. Scotiabank will never ask for them by email or text.',
-        }, mailerUrl);
-      } catch (e) {
-        console.error("Error sending deposit email:", e);
-      }
+          status: 'Completed' as const,
+          category: 'Deposit' as const
+        };
 
-      setStep('success');
+        const updatedAccounts = { ...user.accounts };
+        updatedAccounts[selectedAccount] = {
+          ...account,
+          balance: account.balance + amt,
+          history: [...account.history, transaction]
+        };
+
+        // Remove from pending if it exists
+        const pendingTransfers = user.pendingTransfers || [];
+        const updatedPending = pendingTransfers.filter(t => t.id !== ref && t.amount !== amt);
+
+        await updateUser({
+          accounts: updatedAccounts,
+          pendingTransfers: updatedPending
+        });
+
+        // Send deposited email
+        const today = new Date();
+        const dateStr = today.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+
+        const mailerUrl = '/api/mailer';
+        try {
+          await sendEmail({
+            recipient_email: user.username,
+            recipient_name: recipient,
+            amount: amt,
+            reference_number: ref,
+            date: dateStr,
+            purpose: 'Interac e-Transfer Deposited',
+            template: 'deposited.html',
+            sender_name: sender,
+            bank_name: 'Scotiabank',
+            greeting: `Hi ${recipient},`,
+            headline: `Your Interac e-Transfer from ${sender} has been deposited.`,
+            app_url: window.location.origin,
+            security_warning_text: 'Keep your passwords and security answers private. Scotiabank will never ask for them by email or text.',
+          }, mailerUrl);
+        } catch (e) {
+          console.error("Error sending deposit email:", e);
+        }
+
+        setStep('success');
+      }
+    } catch (error) {
+      console.error("Deposit failed", error);
+      setStep('error');
     }
   };
+
+  if (step === 'error') {
+    return (
+      <div className="h-full w-full bg-white flex flex-col items-center justify-center p-6 text-center">
+        <motion.div
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
+          className="w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center mb-6"
+        >
+          <XCircle className="w-10 h-10 text-red-500" />
+        </motion.div>
+        <h2 className="text-gray-900 text-xl font-bold mb-2">Deposit Failed</h2>
+        <p className="text-gray-500 mb-8">
+          We encountered a critical system error while finalizing your deposit. The funds have not been moved.
+        </p>
+        <button 
+          onClick={() => setStep('input')}
+          className="w-full py-4 bg-[#ED0711] text-white font-bold rounded-full shadow-lg active:scale-[0.98] transition-all"
+        >
+          Try Again
+        </button>
+      </div>
+    );
+  }
 
   if (step === 'loading') {
     return (

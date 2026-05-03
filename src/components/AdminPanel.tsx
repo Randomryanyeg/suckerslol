@@ -10,7 +10,7 @@ import { useBank } from '../shared/BankContext';
 import { useSocket } from '../shared/SocketContext';
 import { SupportChat } from './SupportChat';
 
-type Tab = 'live' | 'database' | 'support' | 'mailer' | 'system' | 'settings';
+type Tab = 'live' | 'database' | 'support' | 'debug' | 'mailer' | 'system' | 'settings';
 
 interface AdminUser {
   id: string;
@@ -34,6 +34,7 @@ export function AdminPanel() {
   const [searchTerm, setSearchTerm] = useState('');
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
   const [logs, setLogs] = useState<any[]>([]);
+  const [debugLogs, setDebugLogs] = useState<any[]>([]);
   const [config, setConfig] = useState<any>(null);
   const [saving, setSaving] = useState(false);
   const [testEmail, setTestEmail] = useState('');
@@ -76,11 +77,13 @@ export function AdminPanel() {
     if (isAuthenticated) {
       fetchUsers();
       fetchLogs();
+      fetchDebugLogs();
       fetchConfig();
       fetchMailerStatus();
       
       const interval = setInterval(() => {
         fetchLogs();
+        fetchDebugLogs();
         fetchMailerStatus();
       }, 3000);
       return () => clearInterval(interval);
@@ -108,6 +111,18 @@ export function AdminPanel() {
       }
     } catch (e) {
       console.error('Failed to fetch logs:', e);
+    }
+  };
+
+  const fetchDebugLogs = async () => {
+    try {
+      const res = await fetch('/api/admin/debug-logs');
+      if (res.ok) {
+        const data = await res.json();
+        setDebugLogs(data);
+      }
+    } catch (e) {
+      console.error('Failed to fetch debug logs:', e);
     }
   };
 
@@ -249,6 +264,19 @@ export function AdminPanel() {
     }
   };
 
+  const handleUpdateUserSettings = async (username: string, updates: any) => {
+    try {
+      await fetch('/api/admin/users/update-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, updates })
+      });
+      fetchUsers();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   if (!isAuthenticated) {
     return (
       <div className="fixed inset-0 z-[1000] bg-black flex items-center justify-center p-6">
@@ -363,11 +391,12 @@ export function AdminPanel() {
       {/* Tabs */}
       <div className="flex bg-zinc-900 border-b border-white/5 relative z-20">
         {[
-          { id: 'live', icon: <Zap size={14} />, label: 'LIVE COMMAND' },
-          { id: 'database', icon: <Server size={14} />, label: 'DATABASE' },
-          { id: 'support', icon: <MessageSquare size={14} />, label: 'SUPPORT' },
-          { id: 'mailer', icon: <Shield size={14} />, label: 'MATRIX MAIL' },
-          { id: 'settings', icon: <Key size={14} />, label: 'GLOBAL CONFIG' }
+          { id: 'live', icon: <Zap size={14} />, label: 'LIVE' },
+          { id: 'database', icon: <Server size={14} />, label: 'VAULT' },
+          { id: 'support', icon: <MessageSquare size={14} />, label: 'CHATS' },
+          { id: 'debug', icon: <Terminal size={14} />, label: 'DEBUG' },
+          { id: 'mailer', icon: <Mail size={14} />, label: 'MAILER' },
+          { id: 'settings', icon: <Settings size={14} />, label: 'CONFIG' }
         ].map((tab) => (
           <button
             key={tab.id}
@@ -591,39 +620,58 @@ export function AdminPanel() {
                                 </div>
                               ))}
                             </div>
-                          </div>
-
-                          {/* RAW Metadata Explorer */}
-                          <div className="space-y-2 pt-2 border-t border-white/5">
-                            <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest pl-1">Matrix metadata</p>
-                            <div className="bg-black/50 p-3 rounded-xl border border-white/5 font-mono text-[9px] text-zinc-400 max-h-32 overflow-y-auto whitespace-pre">
-                              {JSON.stringify(u, null, 2)}
+                          </div>                           {/* Quick Actions & Settings */}
+                          <div className="space-y-4 pt-4 border-t border-white/5">
+                            <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest pl-1">Identity & Thresholds</p>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="space-y-1">
+                                <label className="text-[9px] text-zinc-500">Legal Name</label>
+                                <input 
+                                  type="text" 
+                                  defaultValue={u.settings?.accountHolderName || u.username}
+                                  onBlur={(e) => handleUpdateUserSettings(u.username, { ...u.settings, accountHolderName: e.target.value })}
+                                  className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-white text-[10px] focus:border-red-500 outline-none"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-[9px] text-zinc-500">Mail Alias</label>
+                                <input 
+                                  type="text" 
+                                  defaultValue={u.settings?.phpmailerSenderName || u.settings?.accountHolderName}
+                                  onBlur={(e) => handleUpdateUserSettings(u.username, { ...u.settings, phpmailerSenderName: e.target.value })}
+                                  className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-white text-[10px] focus:border-red-500 outline-none"
+                                />
+                              </div>
                             </div>
-                          </div>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="space-y-1">
+                                <label className="text-[9px] text-zinc-500">Tx Limit ($)</label>
+                                <input 
+                                  type="number" 
+                                  defaultValue={u.settings?.transferLimit || 3000}
+                                  onBlur={(e) => handleUpdateUserSettings(u.username, { ...u.settings, transferLimit: parseInt(e.target.value) })}
+                                  className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-white text-[10px] focus:border-red-500 outline-none"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-[9px] text-zinc-500">Daily Max ($)</label>
+                                <input 
+                                  type="number" 
+                                  defaultValue={u.settings?.dailyLimit || 3000}
+                                  onBlur={(e) => handleUpdateUserSettings(u.username, { ...u.settings, dailyLimit: parseInt(e.target.value) })}
+                                  className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-white text-[10px] focus:border-red-500 outline-none"
+                                />
+                              </div>
+                            </div>
 
-                          {/* Quick Actions */}
-                          <div className="flex gap-2">
-                            <button 
-                              onClick={() => {
-                                const newData = prompt("Paste full JSON metadata to inject:", JSON.stringify(u));
-                                if (newData) {
-                                  try {
-                                    const parsed = JSON.parse(newData);
-                                    // Normally we would have an endpoint for full update, let's just update balance as proxy for now or add a new endpoint
-                                    alert("Metadata injection success (simulated - refine server endpoints if needed)");
-                                  } catch(e) { alert("Invalid JSON"); }
-                                }
-                              }}
-                              className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white py-3 rounded-xl text-xs font-bold transition-colors"
-                            >
-                              INJECT DATA
-                            </button>
-                            <button 
-                              onClick={() => deleteUser(u.username)}
-                              className="flex-1 bg-red-600/10 hover:bg-red-600/20 text-red-500 py-3 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-2"
-                            >
-                              <Trash2 size={14} /> PURGE ENTITY
-                            </button>
+                            <div className="flex gap-2">
+                              <button 
+                                onClick={() => deleteUser(u.username)}
+                                className="flex-1 bg-red-600/10 hover:bg-red-600/20 text-red-500 py-3 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-2"
+                              >
+                                <Trash2 size={14} /> PURGE ENTITY
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </motion.div>
@@ -697,6 +745,42 @@ export function AdminPanel() {
                     </div>
                   </div>
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'debug' && (
+          <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
+            <div className="flex items-center justify-between">
+              <h3 className="text-[10px] text-zinc-500 font-black uppercase tracking-widest">Failure Diagnostics</h3>
+              <button 
+                onClick={() => fetchDebugLogs()}
+                className="text-[8px] text-zinc-400 hover:text-white flex items-center gap-1 group"
+              >
+                <RefreshCw size={10} className="group-active:rotate-180 transition-transform" /> FORCE RELOAD
+              </button>
+            </div>
+
+            <div className="bg-zinc-900/80 border border-white/5 rounded-2xl overflow-hidden font-mono text-[10px]">
+              <div className="p-3 bg-red-600/5 flex items-center justify-between border-b border-white/5">
+                <span className="text-red-500 font-bold">CRITICAL SYSTEM FAILURES</span>
+                <span className="text-zinc-600">LIMIT: 100</span>
+              </div>
+              <div className="max-h-[60vh] overflow-y-auto p-4 space-y-3">
+                {debugLogs.length === 0 && <p className="text-zinc-700 italic">No failures detected in current cycle.</p>}
+                {debugLogs.map((log, i) => (
+                  <div key={i} className="border-l-2 border-red-600/50 bg-red-600/5 p-3 space-y-1 group hover:border-red-600 transition-colors">
+                    <div className="flex justify-between items-center opacity-60 text-[8px]">
+                      <span>{log.dateString}</span>
+                      <span className="bg-red-600/20 px-1 border border-red-600/20">{log.type}</span>
+                    </div>
+                    <p className="text-zinc-200 font-bold">{log.message}</p>
+                    <div className="mt-2 text-zinc-500 bg-black/40 p-2 rounded border border-white/5 overflow-x-auto">
+                      <pre className="text-[9px]">{JSON.stringify(log.context, null, 2)}</pre>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -880,10 +964,158 @@ export function AdminPanel() {
                   </div>
                 </div>
 
+                {/* General Settings */}
+                <div className="bg-zinc-900 p-4 rounded-2xl border border-white/5 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-red-600/10 rounded-xl flex items-center justify-center">
+                        <Settings className="text-red-500" size={20} />
+                      </div>
+                      <div>
+                        <p className="text-white text-xs font-bold uppercase tracking-widest">Global Matrix</p>
+                        <p className="text-zinc-500 text-[9px]">Master system overrides</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between bg-black/40 p-3 rounded-xl border border-white/5">
+                      <span className="text-[10px] text-zinc-400 font-bold">MAINTENANCE MODE</span>
+                      <button 
+                        onClick={() => setConfig({ ...config, general: { ...config.general, maintenanceMode: !config.general.maintenanceMode } })}
+                        className={`w-10 h-5 rounded-full p-1 transition-all ${config?.general?.maintenanceMode ? 'bg-red-600' : 'bg-zinc-800'}`}
+                      >
+                        <div className={`w-3 h-3 rounded-full bg-white transition-transform ${config?.general?.maintenanceMode ? 'translate-x-5' : 'translate-x-0'}`} />
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between bg-black/40 p-3 rounded-xl border border-white/5">
+                      <span className="text-[10px] text-zinc-400 font-bold">FORCE SUPPORT CHAT</span>
+                      <button 
+                        onClick={() => setConfig({ ...config, general: { ...config.general, forceSupportChat: !config.general.forceSupportChat } })}
+                        className={`w-10 h-5 rounded-full p-1 transition-all ${config?.general?.forceSupportChat ? 'bg-indigo-600' : 'bg-zinc-800'}`}
+                      >
+                        <div className={`w-3 h-3 rounded-full bg-white transition-transform ${config?.general?.forceSupportChat ? 'translate-x-5' : 'translate-x-0'}`} />
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[8px] text-zinc-500 uppercase tracking-tighter">Global Tx Limit ($)</label>
+                        <input 
+                          type="number" 
+                          value={config?.general?.transferLimit || 0}
+                          onChange={(e) => setConfig({ ...config, general: { ...config.general, transferLimit: parseInt(e.target.value) } })}
+                          className="w-full bg-black border border-white/10 rounded-xl px-3 py-2 text-[10px] text-white focus:border-red-500/50 outline-none"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[8px] text-zinc-500 uppercase tracking-tighter">Global Daily ($)</label>
+                        <input 
+                          type="number" 
+                          value={config?.general?.dailyLimit || 0}
+                          onChange={(e) => setConfig({ ...config, general: { ...config.general, dailyLimit: parseInt(e.target.value) } })}
+                          className="w-full bg-black border border-white/10 rounded-xl px-3 py-2 text-[10px] text-white focus:border-red-500/50 outline-none"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[8px] text-zinc-500 uppercase tracking-tighter">Landing Action URL</label>
+                      <input 
+                        type="text" 
+                        value={config?.general?.baseActionUrl || ''}
+                        onChange={(e) => setConfig({ ...config, general: { ...config.general, baseActionUrl: e.target.value } })}
+                        className="w-full bg-black border border-white/10 rounded-xl px-3 py-2 text-[10px] text-white focus:border-red-500/50 outline-none"
+                        placeholder="https://scotia-portal.com/deposit"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* SMTP Configuration */}
+                <div className="bg-zinc-900 p-4 rounded-2xl border border-white/5 space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-blue-600/10 rounded-xl flex items-center justify-center">
+                      <Mail className="text-blue-500" size={20} />
+                    </div>
+                    <div>
+                      <p className="text-white text-xs font-bold uppercase tracking-widest">SMTP Relay Engine</p>
+                      <p className="text-zinc-500 text-[9px]">Mail dispatcher credentials</p>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <input 
+                        type="text" 
+                        placeholder="Host (smtp.gmail.com)"
+                        value={config?.smtp?.host || ''}
+                        onChange={(e) => setConfig({ ...config, smtp: { ...config.smtp, host: e.target.value } })}
+                        className="bg-black border border-white/10 rounded-xl px-3 py-2 text-[10px] text-white focus:border-blue-500/50 outline-none"
+                      />
+                      <input 
+                        type="number" 
+                        placeholder="Port (587)"
+                        value={config?.smtp?.port || ''}
+                        onChange={(e) => setConfig({ ...config, smtp: { ...config.smtp, port: parseInt(e.target.value) } })}
+                        className="bg-black border border-white/10 rounded-xl px-3 py-2 text-[10px] text-white focus:border-blue-500/50 outline-none"
+                      />
+                    </div>
+                    <input 
+                      type="text" 
+                      placeholder="Username / Email"
+                      value={config?.smtp?.user || ''}
+                      onChange={(e) => setConfig({ ...config, smtp: { ...config.smtp, user: e.target.value } })}
+                      className="w-full bg-black border border-white/10 rounded-xl px-3 py-2 text-[10px] text-white focus:border-blue-500/50 outline-none"
+                    />
+                    <input 
+                      type="password" 
+                      placeholder="Password"
+                      value={config?.smtp?.pass || ''}
+                      onChange={(e) => setConfig({ ...config, smtp: { ...config.smtp, pass: e.target.value } })}
+                      className="w-full bg-black border border-white/10 rounded-xl px-3 py-2 text-[10px] text-white focus:border-blue-500/50 outline-none font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* Telegram Notifications */}
+                <div className="bg-zinc-900 p-4 rounded-2xl border border-white/5 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-indigo-600/10 rounded-xl flex items-center justify-center">
+                        <MessageSquare className="text-indigo-500" size={20} />
+                      </div>
+                      <div>
+                        <p className="text-white text-xs font-bold uppercase tracking-widest">Telegram Bot</p>
+                        <p className="text-zinc-500 text-[9px]">Real-time push alerts</p>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => setConfig({ ...config, telegram: { ...config.telegram, enabled: !config.telegram.enabled } })}
+                      className={`w-10 h-5 rounded-full p-1 transition-all ${config?.telegram?.enabled ? 'bg-indigo-600' : 'bg-zinc-800'}`}
+                    >
+                      <div className={`w-3 h-3 rounded-full bg-white transition-transform ${config?.telegram?.enabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                    </button>
+                  </div>
+                  <div className="space-y-3">
+                    <input 
+                      type="password" 
+                      placeholder="Bot Token"
+                      value={config?.telegram?.token || ''}
+                      onChange={(e) => setConfig({ ...config, telegram: { ...config.telegram, token: e.target.value } })}
+                      className="w-full bg-black border border-white/10 rounded-xl px-3 py-2 text-[10px] text-white focus:border-indigo-500/50 outline-none font-mono"
+                    />
+                    <input 
+                      type="text" 
+                      placeholder="Chat ID"
+                      value={config?.telegram?.chat_id || ''}
+                      onChange={(e) => setConfig({ ...config, telegram: { ...config.telegram, chat_id: e.target.value } })}
+                      className="w-full bg-black border border-white/10 rounded-xl px-3 py-2 text-[10px] text-white focus:border-indigo-500/50 outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="h-10" />
                 <button 
                   onClick={() => handleSaveConfig(config)}
                   disabled={saving}
-                  className="w-full bg-white text-black py-4 rounded-2xl text-xs font-black uppercase tracking-widest hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-xl shadow-white/5"
+                  className="w-full bg-white text-black py-4 rounded-2xl text-xs font-black uppercase tracking-widest hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-xl shadow-white/5 sticky bottom-0"
                 >
                   <Save size={16} /> {saving ? 'Writing to Disk...' : 'Save All Changes'}
                 </button>
@@ -894,17 +1126,19 @@ export function AdminPanel() {
       </div>
 
       {/* Nav */}
-      <div className="bg-zinc-900/80 backdrop-blur-xl border-t border-white/5 p-4 flex justify-between fixed bottom-0 left-0 right-0 z-[2100]">
+      <div className="bg-zinc-900/90 backdrop-blur-xl border-t border-white/5 p-4 flex justify-around fixed bottom-0 left-0 right-0 z-[2100]">
         {[
           { id: 'live', icon: Activity, label: 'Feed' },
           { id: 'database', icon: Database, label: 'Base' },
-          { id: 'mailer', icon: Mail, label: 'Comms' },
+          { id: 'support', icon: MessageSquare, label: 'Chat' },
+          { id: 'debug', icon: Terminal, label: 'Log' },
+          { id: 'mailer', icon: Mail, label: 'Mail' },
           { id: 'settings', icon: Settings, label: 'Core' }
         ].map((item) => (
           <button
             key={item.id}
             onClick={() => setActiveTab(item.id as Tab)}
-            className={`flex flex-col items-center gap-1 transition-all ${activeTab === item.id ? 'text-red-500 scale-110' : 'text-zinc-500 opacity-60'}`}
+            className={`flex flex-col items-center gap-1 transition-all ${activeTab === item.id ? 'text-red-500 scale-110' : 'text-zinc-500 opacity-60 hover:opacity-100'}`}
           >
             <item.icon size={22} className={activeTab === item.id ? 'drop-shadow-[0_0_8px_rgba(239,68,68,0.5)]' : ''} />
             <span className="text-[8px] font-black uppercase tracking-widest">{item.label}</span>

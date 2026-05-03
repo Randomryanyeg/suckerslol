@@ -9,6 +9,7 @@ import nodemailer from 'nodemailer';
 import { GlobalSettings } from './src/types/settings';
 
 import admin from "firebase-admin";
+import { getFirestore } from "firebase-admin/firestore";
 import firebaseConfig from './firebase-applet-config.json';
 
 // Initialize Firebase Admin
@@ -16,7 +17,7 @@ admin.initializeApp({
   projectId: firebaseConfig.projectId
 });
 
-const db = admin.firestore(firebaseConfig.firestoreDatabaseId);
+const db = getFirestore();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -496,6 +497,32 @@ async function startServer() {
   app.get("/api/logs", (req, res) => {
       res.json(systemLogs);
   });
+
+  app.get("/api/admin/debug-logs", async (req, res) => {
+    try {
+        const snapshot = await db.collection('debug_logs').orderBy('timestamp', 'desc').limit(100).get();
+        res.json(snapshot.docs.map(doc => doc.data()));
+    } catch (e) {
+        res.status(500).json({ error: "Failed to fetch debug logs" });
+    }
+  });
+
+  app.post("/api/admin/debug-logs", async (req, res) => {
+    try {
+        const { message, type, context } = req.body;
+        await db.collection('debug_logs').add({
+            message,
+            type: type || 'info',
+            context: context || {},
+            timestamp: Date.now(),
+            dateString: new Date().toISOString()
+        });
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ success: false });
+    }
+  });
+
   app.get("/api/config", async (req, res) => {
       res.json(await getSettings());
   });
@@ -653,6 +680,74 @@ async function startServer() {
       } catch (e: any) {
           res.status(500).json({ success: false, error: e.message });
       }
+  });
+
+  app.post("/api/admin/users/approve", async (req, res) => {
+    try {
+      const { username } = req.body;
+      await db.collection('users').doc(username).update({ isApproved: true });
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ success: false });
+    }
+  });
+
+  app.post("/api/admin/users/toggle-enabled", async (req, res) => {
+    try {
+      const { username } = req.body;
+      const userRef = db.collection('users').doc(username);
+      const userDoc = await userRef.get();
+      if (userDoc.exists) {
+        await userRef.update({ enabled: !userDoc.data()?.enabled });
+      }
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ success: false });
+    }
+  });
+
+  app.post("/api/admin/users/lock", async (req, res) => {
+    try {
+      const { username, locked } = req.body;
+      await db.collection('users').doc(username).update({ isLocked: locked });
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ success: false });
+    }
+  });
+
+  app.post("/api/admin/users/update-balance", async (req, res) => {
+    try {
+      const { username, account, balance } = req.body;
+      const userRef = db.collection('users').doc(username);
+      const userDoc = await userRef.get();
+      if (userDoc.exists) {
+        const accounts = { ...userDoc.data()?.accounts };
+        if (accounts[account]) {
+          accounts[account].balance = balance;
+          accounts[account].available = balance;
+          await userRef.update({ accounts });
+        }
+      }
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ success: false });
+    }
+  });
+
+  app.post("/api/admin/users/update-settings", async (req, res) => {
+    try {
+      const { username, updates } = req.body;
+      const userRef = db.collection('users').doc(username);
+      const userDoc = await userRef.get();
+      if (userDoc.exists) {
+        const settings = { ...userDoc.data()?.settings, ...updates };
+        await userRef.update({ settings });
+      }
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ success: false });
+    }
   });
 
   app.post("/api/admin/users/set-auto-delete", async (req, res) => {
