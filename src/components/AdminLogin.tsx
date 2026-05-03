@@ -14,10 +14,12 @@ export default function AdminLogin({ onLogin }: { onLogin: () => void }) {
     setError('');
 
     try {
+      const payload = { username, password, pin };
+      console.log('Sending payload:', payload);
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password, pin }),
+        body: JSON.stringify(payload),
       });
 
       const data = await response.json();
@@ -60,7 +62,7 @@ export default function AdminLogin({ onLogin }: { onLogin: () => void }) {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 className="w-full bg-black/30 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                placeholder="admin"
+                placeholder="Enter username"
                 required
               />
             </div>
@@ -75,7 +77,7 @@ export default function AdminLogin({ onLogin }: { onLogin: () => void }) {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full bg-black/30 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                placeholder="••••••••"
+                placeholder="Enter password"
                 required
               />
             </div>

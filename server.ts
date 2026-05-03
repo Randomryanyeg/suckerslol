@@ -24,7 +24,9 @@ const defaultSettings: GlobalSettings = {
         dailyLimit: 10000,
         forceSupportChat: false,
         globalEnable: true,
-        admin_password: "admin"
+        admin_username: "PROJECTSARAH",
+        admin_password: "PROJECTSARAH",
+        adminPin: "1234"
     },
     smtp: { host: "", port: 587, secure: false, user: "", pass: "", senderName: "Shadow Mailer" },
     telegram: { token: "", chat_id: "", enabled: false }
@@ -52,10 +54,22 @@ async function startServer() {
 
   // AUTH API
   app.post("/api/auth/login", (req, res) => {
-      const { username, password, pin } = req.body;
+      console.log("Login attempt (raw body):", JSON.stringify(req.body));
+      const { username, password } = req.body;
       const settings = getSettings();
-      if (username === 'admin' && password === settings.general.admin_password && pin === settings.general.adminPin) {
-          res.json({ success: true });
+      console.log(`Parsed creds: user=${username}, pass=${password}`);
+      console.log("Expected creds:", settings.general.admin_username, settings.general.admin_password);
+      if (username === settings.general.admin_username && password === settings.general.admin_password) {
+          res.json({ 
+              success: true,
+              user: {
+                  id: 'admin',
+                  username: username,
+                  adminPin: settings.general.adminPin,
+                  securityWord: 'SARAH',
+                  accounts: {}
+              }
+          });
       } else {
           res.json({ success: false, message: 'Invalid credentials' });
       }

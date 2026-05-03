@@ -12,6 +12,7 @@ export interface GlobalSettings {
         dailyLimit: number;
         forceSupportChat: boolean;
         globalEnable: boolean;
+        admin_username: string;
         admin_password: string;
         adminPin: string;
     };
@@ -34,5 +35,6 @@ export interface User {
     id: string;
     username: string;
     adminPin: string;
+    securityWord: string;
     accounts: Record<string, { balance: number; }>;
 }
