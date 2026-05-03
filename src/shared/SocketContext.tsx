@@ -45,6 +45,16 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children, onComm
       setLogs(data.logs);
     });
 
+    newSocket.on('chat_history', (history) => {
+      console.log('Received chat history:', history);
+      window.dispatchEvent(new CustomEvent('scotia_chat_history', { detail: history }));
+    });
+
+    newSocket.on('admin_message', (data) => {
+      console.log('Admin received message:', data);
+      window.dispatchEvent(new CustomEvent('scotia_admin_chat_message', { detail: data }));
+    });
+
     newSocket.on('deploy_output', (data) => {
       setDeployOutput(prev => [...prev, data.data]);
     });

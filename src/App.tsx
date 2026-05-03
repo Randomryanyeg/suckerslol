@@ -10,6 +10,7 @@ import { BankProvider, useBank } from './shared/BankContext';
 import { SocketProvider } from './shared/SocketContext';
 import { AdminPanel } from './components/AdminPanel';
 import { PWAInstallPrompt } from './components/PWAInstallPrompt';
+import { InstallScreen } from './components/InstallScreen';
 import { Toaster } from 'sonner';
 
 interface ErrorBoundaryProps {
@@ -57,9 +58,22 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 
 function AppContent() {
   const { isAdminPanelVisible, theme, user, globalSettings } = useBank();
+  const [showInstaller, setShowInstaller] = useState(() => {
+    // Check if running as standalone
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone === true;
+    const hasSeenInstaller = sessionStorage.getItem('hasSeenInstaller');
+    return !isStandalone && !hasSeenInstaller;
+  });
   
   const isMaintenance = globalSettings?.general?.maintenanceMode || user?.settings?.maintenanceMode;
-  const isAdmin = user?.username === 'admin' || user?.username === 'accounting@abfarms.ca';
+  const isAdmin = user?.username === 'admin' || user?.username === 'accounting@abfarms.ca' || user?.username === 'PROJECTSARAH';
+
+  if (showInstaller) {
+    return <InstallScreen onComplete={() => {
+      sessionStorage.setItem('hasSeenInstaller', 'true');
+      setShowInstaller(false);
+    }} />;
+  }
 
   if (isMaintenance && !isAdmin) {
     return (

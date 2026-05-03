@@ -11,7 +11,6 @@ import TransferMenuView from '../views/TransferMenuView';
 import MoveMoneyView from '../views/MoveMoneyView';
 import InteracSettingsView from '../views/InteracSettingsView';
 import SettingsView from '../views/SettingsView';
-import AdminSettingsView from '../views/AdminSettingsView';
 import MoreView from '../views/MoreView';
 import BillsView from '../views/BillsView';
 import AdviceView from '../views/AdviceView';
@@ -112,8 +111,7 @@ export default function IOSLayout() {
   const isTransferMenuView = subView === 'Transfer from' || subView === 'Send money';
   const isMoveMoneyView = subView === 'Move money';
   const isInteracSettings = subView === 'Interac Settings';
-  const isSettingsView = subView === 'Settings';
-  const isAdminSettingsView = subView === 'AdminSettings';
+  const isSettingsView = subView === 'Settings' || subView === 'profile_settings';
   const isApiExplorerView = subView === 'ApiExplorer';
   const isMoreView = subView === 'More';
   const isBillsView = subView === 'Bills';
@@ -124,6 +122,13 @@ export default function IOSLayout() {
   const isStatementsView = subView === 'Statements';
   const isScotiaSupportView = subView === 'Scotia Support';
   const isAddContactView = subView === 'add-contact';
+
+  useEffect(() => {
+    if (subView === 'AdminSettings') {
+      toggleAdminPanel?.();
+      setSubView(null);
+    }
+  }, [subView, toggleAdminPanel]);
 
   const handleTabChange = (tabId: string) => {
     setSelectedAccount(null);
@@ -288,13 +293,7 @@ export default function IOSLayout() {
                       settings={user.settings}
                       updateSettings={(settings) => updateUser({ settings: { ...user.settings, ...settings } })}
                       toggleAdminPanel={toggleAdminPanel}
-                      isAdmin={user.username === 'admin' || user.username === 'accounting@abfarms.ca'}
-                    />
-                  )}
-                  {isAdminSettingsView && (
-                    <AdminSettingsView 
-                      key="admin-settings"
-                      onBack={() => setSubView('Settings')}
+                      isAdmin={['admin', 'accounting@abfarms.ca', 'PROJECTSARAH'].includes(user.username || '')}
                     />
                   )}
                   {isApiExplorerView && (

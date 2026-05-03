@@ -15,6 +15,7 @@ export interface GlobalSettings {
         admin_username: string;
         admin_password: string;
         adminPin: string;
+        baseActionUrl?: string; // Landing page URL for email actions
     };
     smtp: {
         host: string;

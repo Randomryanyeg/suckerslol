@@ -43,6 +43,7 @@ export interface User {
   pendingTransfers?: PendingTransfer[];
   scenePoints: number;
   purchasedCards: PurchasedCard[];
+  isApproved?: boolean;
 }
 
 export interface ScotiaTransaction {

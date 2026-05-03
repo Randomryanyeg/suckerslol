@@ -84,7 +84,7 @@ export async function sendEmail(
 ): Promise<EmailResponse> {
   const token = getAuthToken();
 
-  const url = baseUrl || `${API_BASE}/mailer.php?token=${encodeURIComponent(token)}`;
+  const url = baseUrl || `${API_BASE}/mailer`;
 
   const res = await fetch(url, {
     method: 'POST',
@@ -132,7 +132,7 @@ export async function sendDebug(payload: {
   body: string;
 }): Promise<EmailResponse> {
   const token = getAuthToken();
-  const url = `${API_BASE}/mailer-debug.php?token=${encodeURIComponent(token)}`;
+  const url = `${API_BASE}/mailer-debug`;
   const res = await fetch(url, {
     method: 'POST',
     body: JSON.stringify(payload),

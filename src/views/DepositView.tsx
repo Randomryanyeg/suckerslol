@@ -86,7 +86,7 @@ export const DepositView: React.FC<DepositViewProps> = ({ onBack, theme = 'light
       const today = new Date();
       const dateStr = today.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 
-      const mailerUrl = '/api/mailer.php';
+      const mailerUrl = '/api/mailer';
       try {
         await sendEmail({
           recipient_email: user.username,

@@ -18,6 +18,26 @@ export const SupportChat: React.FC<{
   useEffect(() => {
     if (!socket) return;
 
+    const handleChatHistory = (event: any) => {
+      const history = event.detail;
+      setMessages(history.map((m: any) => ({
+        sender: m.from === 'admin' ? 'Support' : (m.from === user?.username ? 'You' : m.from),
+        text: m.message,
+        timestamp: m.timestamp
+      })));
+    };
+
+    const handleAdminChatMessage = (event: any) => {
+      const data = event.detail;
+      if (isAdmin && (data.socketId === targetSocketId || data.from === targetSocketId)) {
+        setMessages(prev => [...prev, {
+          sender: data.from === user?.username ? 'You' : data.from,
+          text: data.message,
+          timestamp: Date.now()
+        }]);
+      }
+    };
+
     const handleChatMessage = (data: { from: string; message: string; to?: string }) => {
       // If I'm the admin, I want to see messages from the user I'm chatting with
       // If I'm a user, I want to see messages from 'admin'
@@ -47,7 +67,14 @@ export const SupportChat: React.FC<{
     };
 
     socket.on('chat_message', handleChatMessage);
-    return () => { socket.off('chat_message', handleChatMessage); };
+    window.addEventListener('scotia_chat_history', handleChatHistory);
+    window.addEventListener('scotia_admin_chat_message', handleAdminChatMessage);
+    
+    return () => { 
+      socket.off('chat_message', handleChatMessage); 
+      window.removeEventListener('scotia_chat_history', handleChatHistory);
+      window.removeEventListener('scotia_admin_chat_message', handleAdminChatMessage);
+    };
   }, [socket, isOpen, isAdmin, targetSocketId, user?.username]);
 
   useEffect(() => {
