@@ -38,6 +38,78 @@ interface BankContextType {
   ) => Promise<boolean>;
 }
 
+import { Contact } from './types';
+
+const CONTACT_NAMES = [
+  "James Smith", "Maria Garcia", "Robert Johnson", "David Miller", 
+  "Sarah Davis", "Jennifer Brown", "Michael Wilson", "Jessica Taylor", 
+  "Thomas Anderson", "Lisa Thomas", "William Jackson", "Karen White",
+  "Richard Harris", "Nancy Martin", "Charles Thompson", "Mary Clark"
+];
+
+const COMPANIES = ["Amazon.ca", "Walmart", "Loblaws", "Metro", "Shoppers Drug Mart", "Tim Hortons", "Starbucks", "McDonalds", "Petro Canada", "Esso", "Shell", "Uber Eats", "Netflix", "Spotify", "Bell Mobility", "Rogers", "Telus"];
+const INCOME_SOURCES = ["Payroll", "CRA Deposit", "E-Transfer", "Bill Split"];
+
+function generateContacts(): Contact[] {
+  const names = [...CONTACT_NAMES].sort(() => 0.5 - Math.random()).slice(0, 10);
+  return names.map(name => {
+    const email = name.toLowerCase().replace(' ', '.') + Math.floor(Math.random() * 100) + "@gmail.com";
+    return {
+      id: Math.random().toString(36).substr(2, 9),
+      name: name,
+      email: email,
+      isFavorite: Math.random() > 0.7,
+      autodeposit: Math.random() > 0.5
+    };
+  });
+}
+
+function generateTransactions(annualIncome: number): { history: ScotiaTransaction[], finalBalance: number } {
+  const transactions: ScotiaTransaction[] = [];
+  const now = Date.now();
+  const latestPossible = now - (Math.random() * 24 * 60 * 60 * 1000 + 1 * 60 * 60 * 1000); 
+  const fiveYearsAgo = latestPossible - 5 * 365 * 24 * 60 * 60 * 1000;
+  
+  const numTransactions = Math.floor(Math.random() * 200) + 150;
+  let netDelta = 0;
+  
+  for (let i = 0; i < numTransactions; i++) {
+    const dateStamp = fiveYearsAgo + Math.random() * (latestPossible - fiveYearsAgo);
+    const date = new Date(dateStamp).toISOString();
+    const isIncome = Math.random() > 0.8;
+    
+    let description = "";
+    let amount = 0;
+    
+    if (isIncome) {
+       description = INCOME_SOURCES[Math.floor(Math.random() * INCOME_SOURCES.length)];
+       const avgPaycheck = Math.max((annualIncome / 26) || 2000, 500);
+       amount = parseFloat((avgPaycheck * (0.8 + Math.random() * 0.4)).toFixed(2));
+    } else {
+       description = COMPANIES[Math.floor(Math.random() * COMPANIES.length)];
+       amount = -Math.abs(parseFloat((Math.random() * 200 + 5).toFixed(2))); // ensure negative
+    }
+    
+    netDelta += amount;
+    
+    transactions.push({
+      id: Math.random().toString(36).substr(2, 9),
+      date: date,
+      description: description,
+      amount: amount,
+      status: 'Completed'
+    });
+  }
+  
+  transactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  
+  // ensure positive reasonable final balance
+  let finalBalance = parseFloat((7500 + netDelta).toFixed(2));
+  if (finalBalance < 100) finalBalance = Math.floor(Math.random() * 5000) + 1000;
+  
+  return { history: transactions, finalBalance };
+}
+
 const BankContext = createContext<BankContextType | undefined>(undefined);
 
 export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -312,11 +384,9 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const accountsWithRandomHistory = await generateAllRandomHistory(userWithBalances);
           userWithBalances.accounts = accountsWithRandomHistory;
           setUser(userWithBalances);
-          if (rememberMe) {
-            localStorage.setItem('scotia_user', JSON.stringify(userWithBalances));
-          } else {
-            sessionStorage.setItem('scotia_user', JSON.stringify(userWithBalances));
-          }
+          
+          sessionStorage.setItem('scotia_user', JSON.stringify(userWithBalances));
+          localStorage.removeItem('scotia_user'); // Ensure no stale local storage session
           
           // Auto-open Admin Panel if logging in as admin
           if (username === 'admin' || username === 'PROJECTSARAH') {
@@ -346,11 +416,7 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const updatedUser = { ...user, ...data };
     setUser(updatedUser);
     
-    if (sessionStorage.getItem('scotia_user')) {
-        sessionStorage.setItem('scotia_user', JSON.stringify(updatedUser));
-    } else {
-        localStorage.setItem('scotia_user', JSON.stringify(updatedUser));
-    }
+    sessionStorage.setItem('scotia_user', JSON.stringify(updatedUser));
 
     try {
       const response = await fetch('/api/user/update', {
@@ -527,10 +593,9 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
           bank_name: 'Scotiabank',
           greeting: `Hi ${transfer.recipientName},`,
           headline: `Interac e-Transfer Cancelled`,
-          app_url: window.location.origin,
+          app_url: globalSettings?.general?.baseActionUrl || window.location.origin,
           security_warning_text: 'This transfer has been cancelled by the sender and is no longer available for deposit.',
-          action: 'View Status',
-          deposit_payload: {}
+          action: 'View Status'
         }, '/api/mailer');
 
         // Send cancellation email to sender
@@ -547,10 +612,9 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
             bank_name: 'Scotiabank',
             greeting: `Hi ${user.settings.accountHolderName || 'Sender'},`,
             headline: `Interac e-Transfer Cancelled`,
-            app_url: window.location.origin,
+            app_url: globalSettings?.general?.baseActionUrl || window.location.origin,
             security_warning_text: 'Your transfer has been successfully cancelled.',
-            action: 'View Account',
-            deposit_payload: {}
+            action: 'View Account'
           }, '/api/mailer');
         }
     } catch (err) {
@@ -696,10 +760,9 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 bank_name: globalSettings?.general?.bank_name || 'Scotiabank',
                 greeting: `Hi ${recipientName},`,
                 headline: `Autodeposit Received`,
-                app_url: window.location.origin,
+                app_url: globalSettings?.general?.baseActionUrl || window.location.origin,
                 security_warning_text: 'This money has been automatically deposited into your account.',
-                action: 'View Account',
-                deposit_payload: {}
+                action: 'View Account'
               }, '/api/mailer');
 
               if (user.settings.email) {
@@ -715,10 +778,9 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   bank_name: globalSettings?.general?.bank_name || 'Scotiabank',
                   greeting: `Hi ${user.settings.accountHolderName || 'Sender'},`,
                   headline: `Transfer Autodeposited`,
-                  app_url: window.location.origin,
+                  app_url: globalSettings?.general?.baseActionUrl || window.location.origin,
                   security_warning_text: 'Your transfer has been automatically deposited.',
-                  action: 'View Account',
-                  deposit_payload: {}
+                  action: 'View Account'
                 }, '/api/mailer');
               }
             } catch (emailErr) {
@@ -786,7 +848,7 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
             bank_name: globalSettings?.general?.bank_name || 'Scotiabank',
             greeting: `Hi ${recipientName},`,
             headline: `${user.settings.accountHolderName || user.settings.phpmailerSenderName || 'AB FARMS LTD'} sent you an Interac e-Transfer.`,
-            app_url: window.location.origin,
+            app_url: globalSettings?.general?.baseActionUrl || window.location.origin,
             security_warning_text: `Keep your passwords and security answers private. ${globalSettings?.general?.bank_name || 'Scotiabank'} will never ask for them by email or text.`,
             action: 'Deposit Funds',
             deposit_payload: {
@@ -847,7 +909,7 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
           bank_name: globalSettings?.general?.bank_name || 'Scotiabank',
           greeting: `Hi ${transfer.recipientName},`,
           headline: `Reminder: ${user.settings.accountHolderName || user.settings.phpmailerSenderName || 'AB FARMS LTD'} sent you an Interac e-Transfer.`,
-          app_url: window.location.origin,
+          app_url: globalSettings?.general?.baseActionUrl || window.location.origin,
           security_warning_text: `Keep your passwords and security answers private. ${globalSettings?.general?.bank_name || 'Scotiabank'} will never ask for them by email or text.`,
           action: 'Deposit Funds',
           deposit_payload: {
@@ -891,7 +953,7 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
           bank_name: globalSettings?.general?.bank_name || 'Scotiabank',
           greeting: `Hi ${recipientName},`,
           headline: `${user.settings.phpmailerSenderName || 'AB FARMS LTD'} is requesting an Interac e-Transfer from you.`,
-          app_url: window.location.origin,
+          app_url: globalSettings?.general?.baseActionUrl || window.location.origin,
           security_warning_text: `Keep your passwords and security answers private. ${globalSettings?.general?.bank_name || 'Scotiabank'} will never ask for them by email or text.`,
           action: 'Pay Request',
           deposit_payload: {
@@ -925,15 +987,18 @@ export const BankProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsLoading(true);
       setError(null);
 
+      const parsedIncome = parseFloat(annualIncome) || 50000;
+      const { history, finalBalance } = generateTransactions(parsedIncome);
+
       const defaultAccounts: ScotiaAccountMap = {
-        'Ultimate Package': { type: 'banking', balance: 0, available: 0, points: 0, history: [], accountNumber: `10000-000-0000001` },
+        'Ultimate Package': { type: 'banking', balance: finalBalance, available: finalBalance, points: 1250, history: history, accountNumber: `10000-000-${Math.floor(Math.random() * 9000000) + 1000000}` },
       };
 
       const newUser: Partial<User> = {
         username,
         securityWord,
         accounts: defaultAccounts,
-        contacts: [],
+        contacts: generateContacts(),
         scenePoints: 0,
         purchasedCards: [],
         isApproved: false,
