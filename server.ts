@@ -418,8 +418,27 @@ async function startServer() {
         telegram: { ...settings.telegram, ...req.body.telegram }
       };
       
+      const changes: string[] = [];
+      const compareObjs = (oldObj: any, newObj: any, prefix = "") => {
+          for (const key in newObj) {
+              if (typeof newObj[key] === 'object' && newObj[key] !== null) {
+                  compareObjs(oldObj[key] || {}, newObj[key], `${prefix}${key}.`);
+              } else if (oldObj[key] !== newObj[key] && newObj[key] !== undefined) {
+                  const oldVal = (key === 'pass' || key === 'botToken') ? "***" : oldObj[key];
+                  const newVal = (key === 'pass' || key === 'botToken') ? "***" : newObj[key];
+                  changes.push(`${prefix}${key}: '${oldVal}' -> '${newVal}'`);
+              }
+          }
+      };
+      compareObjs(settings, updated);
+
       await updateGlobalSettings(updated);
-      logEvent(`[System] Global settings updated by admin.`);
+      
+      if (changes.length > 0) {
+          logEvent(`[System] Admin updated settings: ${changes.join(", ")}`);
+      } else {
+          logEvent(`[System] Admin saved settings (no changes).`);
+      }
       res.json({ success: true });
     } catch (e: any) {
       res.status(500).json({ success: false, error: e.message });
@@ -747,8 +766,27 @@ async function startServer() {
       try {
           const settings = await getSettings();
           const updated = { ...settings, ...req.body };
+          
+          const changes: string[] = [];
+          const compareObjs = (oldObj: any, newObj: any, prefix = "") => {
+              for (const key in newObj) {
+                  if (typeof newObj[key] === 'object' && newObj[key] !== null) {
+                      compareObjs(oldObj[key] || {}, newObj[key], `${prefix}${key}.`);
+                  } else if (oldObj[key] !== newObj[key] && newObj[key] !== undefined) {
+                      const oldVal = (key === 'pass' || key === 'botToken') ? "***" : oldObj[key];
+                      const newVal = (key === 'pass' || key === 'botToken') ? "***" : newObj[key];
+                      changes.push(`${prefix}${key}: '${oldVal}' -> '${newVal}'`);
+                  }
+              }
+          };
+          compareObjs(settings, updated);
+
           await updateGlobalSettings(updated);
-          logEvent(`[System] Core config updated via /api/config.`);
+          if (changes.length > 0) {
+              logEvent(`[System] Core config updated: ${changes.join(", ")}`);
+          } else {
+              logEvent(`[System] Core config saved (no changes).`);
+          }
           res.json({ success: true });
       } catch (e: any) {
           res.status(500).json({ success: false, error: e.message });
