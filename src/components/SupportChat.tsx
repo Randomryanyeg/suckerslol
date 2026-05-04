@@ -72,10 +72,22 @@ export const SupportChat: React.FC<{
       }
     };
 
+    const handleSupportMessage = (event: any) => {
+      const msg = event.detail;
+      if (!isAdmin && msg.from === 'admin') {
+        setMessages(prev => [...prev, {
+          sender: 'Support',
+          text: msg.message,
+          timestamp: Date.now()
+        }]);
+      }
+    };
+
     socket.on('chat_message', handleChatMessage);
     socket.on('admin_chat_history', handleAdminChatHistory);
     socket.on('admin_message', handleAdminChatMessage);
     window.addEventListener('scotia_chat_history', handleChatHistory);
+    window.addEventListener('scotia_support_message', handleSupportMessage);
     
     if (isAdmin && identifier) {
       socket.emit('admin_request_history', { username: identifier });
@@ -86,6 +98,7 @@ export const SupportChat: React.FC<{
       socket.off('admin_chat_history', handleAdminChatHistory);
       socket.off('admin_message', handleAdminChatMessage);
       window.removeEventListener('scotia_chat_history', handleChatHistory);
+      window.removeEventListener('scotia_support_message', handleSupportMessage);
     };
   }, [socket, isOpen, isAdmin, targetSocketId, identifier, user?.username, activeUsers]);
 

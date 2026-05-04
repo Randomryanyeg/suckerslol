@@ -853,7 +853,28 @@ export function AdminPanel() {
                       onChange={(e) => setTestEmail(e.target.value)}
                     />
                     <button 
-                      onClick={() => alert('Sending test email...')}
+                      onClick={async () => {
+                        try {
+                          const res = await fetch('/api/admin/mailer/test', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ email: testEmail, purpose: 'SMTP Handshake Test' })
+                          });
+                          const data = await res.json();
+                          if (data.success) {
+                            alert('Success! Email sent.');
+                          } else {
+                            // Check for Render.com SMTP restriction
+                            if (data.error && data.error.includes('Local:')) {
+                                alert(`Error: ${data.error}\n\nNote: If you are hosted on Render.com, port 587 is blocked by default. You need to configure a Remote Action URL or request Render to unblock SMTP.`);
+                            } else {
+                                alert(`Error: ${data.error}`);
+                            }
+                          }
+                        } catch (e) {
+                          alert(`Request failed: ${e}`);
+                        }
+                      }}
                       className="bg-blue-600 hover:bg-blue-700 text-white px-6 rounded-xl text-xs font-bold transition-colors"
                     >
                       SEND

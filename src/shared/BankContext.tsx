@@ -38,8 +38,6 @@ interface BankContextType {
   ) => Promise<boolean>;
 }
 
-import { Contact } from './types';
-
 const CONTACT_NAMES = [
   "James Smith", "Maria Garcia", "Robert Johnson", "David Miller", 
   "Sarah Davis", "Jennifer Brown", "Michael Wilson", "Jessica Taylor", 

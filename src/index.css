@@ -11,6 +11,14 @@ html, body, #root {
   -webkit-overflow-scrolling: touch;
 }
 
+html::-webkit-scrollbar, body::-webkit-scrollbar {
+  display: none;
+}
+html, body {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 h1, h2, h3, h4, h5, h6 {
   font-family: 'Inter', sans-serif;
 }

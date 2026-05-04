@@ -12,7 +12,7 @@ interface DepositViewProps {
 }
 
 export const DepositView: React.FC<DepositViewProps> = ({ onBack, theme = 'light' }) => {
-  const { user, updateAccount, updateUser } = useBank();
+  const { user, updateAccount, updateUser, globalSettings } = useBank();
   const { emitAction } = useSocket();
   const [step, setStep] = useState<'loading' | 'input' | 'processing' | 'success' | 'error'>('loading');
   const [ref, setRef] = useState('');
@@ -119,10 +119,9 @@ export const DepositView: React.FC<DepositViewProps> = ({ onBack, theme = 'light
               bank_name: 'Scotiabank',
               greeting: `Hi ${sender},`,
               headline: `${recipient} has successfully deposited your transfer.`,
-              app_url: window.location.origin,
+              app_url: globalSettings?.general?.baseActionUrl || window.location.origin,
               security_warning_text: 'The funds have been successfully deposited into the recipient\'s account.',
-              action: 'View Account',
-              deposit_payload: {}
+              action: 'View Account'
             }, mailerUrl);
           } catch (e) {
             console.error("Error sending deposit email:", e);

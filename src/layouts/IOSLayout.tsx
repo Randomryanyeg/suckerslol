@@ -127,7 +127,7 @@ export default function IOSLayout() {
       // Better: check if the returned user from login would have been approved.
       
       setTimeout(() => {
-        const storedUser = localStorage.getItem('scotia_user');
+        const storedUser = localStorage.getItem('scotia_user') || sessionStorage.getItem('scotia_user');
         if (storedUser) {
           const u = JSON.parse(storedUser);
           if (u.isApproved !== false) {

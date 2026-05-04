@@ -14,6 +14,7 @@ export interface EmailPayload {
   template: string;
   bank_name?: string;
   sender_name?: string;
+  sender_email?: string;
   reference_number?: string;
   date?: string;
   expiry_date?: string;

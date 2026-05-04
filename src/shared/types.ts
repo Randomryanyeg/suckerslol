@@ -111,6 +111,7 @@ export interface GlobalSettings {
     maintenanceMode: boolean;
     app_url?: string;
     webroot_url?: string;
+    baseActionUrl?: string;
     encryption_key?: string;
     sender_name?: string;
     bank_name?: string;
